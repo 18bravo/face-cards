@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Leader {
+  id           String    @id @default(cuid())
+  name         String
+  title        String
+  photoUrl     String
+  category     Category
+  branch       Branch?
+  organization String
+  isActive     Boolean   @default(true)
+  lastVerified DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([category])
+  @@index([branch])
+  @@index([isActive])
+}
+
+enum Category {
+  MILITARY_4STAR
+  MILITARY_3STAR
+  MAJOR_COMMAND
+  SERVICE_SECRETARY
+  CIVILIAN_SES
+  APPOINTEE
+  SECRETARIAT
+}
+
+enum Branch {
+  ARMY
+  NAVY
+  AIR_FORCE
+  MARINE_CORPS
+  SPACE_FORCE
+  COAST_GUARD
+}
