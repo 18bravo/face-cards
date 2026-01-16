@@ -73,8 +73,12 @@ export function QuizSession({ leaders }: QuizSessionProps) {
     }
 
     if (currentIndex < filteredLeaders.length - 1) {
-      setCurrentIndex((i) => i + 1)
+      // First flip the card back
       setIsFlipped(false)
+      // Wait for flip animation to complete before showing next card
+      setTimeout(() => {
+        setCurrentIndex((i) => i + 1)
+      }, 600) // Match the 0.6s animation duration
     } else {
       setSessionComplete(true)
     }
