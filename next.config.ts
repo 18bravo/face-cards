@@ -19,6 +19,14 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: 'ui-avatars.com',
       },
+      {
+        protocol: 'https',
+        hostname: 'd1ldvf68ux039x.cloudfront.net', // DVIDSHUB images
+      },
+      {
+        protocol: 'https',
+        hostname: 'api.army.mil',
+      },
     ],
   },
 };
