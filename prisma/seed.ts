@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../lib/prisma'
 import { fetchAllLeaders } from '../lib/openai'
-
-const prisma = new PrismaClient()
 
 async function main() {
   console.log('Fetching leader data from OpenAI...')
