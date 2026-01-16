@@ -2,7 +2,6 @@
 
 import { motion } from 'framer-motion'
 import { useState } from 'react'
-import Image from 'next/image'
 
 interface CardProps {
   photoUrl: string
@@ -13,6 +12,11 @@ interface CardProps {
 }
 
 export function Card({ photoUrl, title, name, isFlipped, onFlip }: CardProps) {
+  const [imgError, setImgError] = useState(false)
+
+  // Fallback to avatar if image fails
+  const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&size=400&background=1e3a5f&color=fff&bold=true`
+
   return (
     <div
       className="relative w-full max-w-sm h-96 cursor-pointer perspective-1000"
@@ -30,12 +34,12 @@ export function Card({ photoUrl, title, name, isFlipped, onFlip }: CardProps) {
           style={{ backfaceVisibility: 'hidden' }}
         >
           <div className="relative w-48 h-48 rounded-full overflow-hidden mb-4 border-4 border-gray-200">
-            <Image
-              src={photoUrl}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imgError ? fallbackUrl : photoUrl}
               alt="Leader photo"
-              fill
-              className="object-cover"
-              unoptimized
+              className="w-full h-full object-cover"
+              onError={() => setImgError(true)}
             />
           </div>
           <p className="text-center text-gray-700 font-medium px-2">{title}</p>
