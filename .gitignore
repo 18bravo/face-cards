@@ -3,6 +3,9 @@
 # claude
 .claude/
 
+# worktrees
+.worktrees/
+
 # dependencies
 /node_modules
 /.pnp
