@@ -1,21 +1,11 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { LeaderTable } from '@/components/admin/LeaderTable'
 import { LeaderForm } from '@/components/admin/LeaderForm'
 import { DeleteDialog } from '@/components/admin/DeleteDialog'
 import { DiffModal } from '@/components/admin/DiffModal'
-
-interface Leader {
-  id: string
-  name: string
-  title: string
-  photoUrl: string
-  category: string
-  branch: string | null
-  organization: string
-  isActive: boolean
-}
+import { Leader, CATEGORIES, BRANCHES } from '@/types/admin'
 
 interface DiffData {
   additions: Array<{ name: string; title: string; category: string; branch: string | null }>
@@ -28,26 +18,26 @@ interface DiffData {
   previewToken: string
 }
 
-const CATEGORIES = [
-  { value: '', label: 'All Categories' },
-  { value: 'MILITARY_4STAR', label: '4-Star' },
-  { value: 'MILITARY_3STAR', label: '3-Star' },
-  { value: 'MAJOR_COMMAND', label: 'Major Command' },
-  { value: 'SERVICE_SECRETARY', label: 'Service Secretary' },
-  { value: 'CIVILIAN_SES', label: 'Civilian SES' },
-  { value: 'APPOINTEE', label: 'Appointee' },
-  { value: 'SECRETARIAT', label: 'Secretariat' },
-]
+// Filter options with 'All' option
+const CATEGORY_OPTIONS = [{ value: '', label: 'All Categories' }, ...CATEGORIES]
+const BRANCH_OPTIONS = [{ value: '', label: 'All Branches' }, ...BRANCHES]
 
-const BRANCHES = [
-  { value: '', label: 'All Branches' },
-  { value: 'ARMY', label: 'Army' },
-  { value: 'NAVY', label: 'Navy' },
-  { value: 'AIR_FORCE', label: 'Air Force' },
-  { value: 'MARINE_CORPS', label: 'Marine Corps' },
-  { value: 'SPACE_FORCE', label: 'Space Force' },
-  { value: 'COAST_GUARD', label: 'Coast Guard' },
-]
+// Custom hook for debouncing
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value)
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+
+    return () => {
+      clearTimeout(handler)
+    }
+  }, [value, delay])
+
+  return debouncedValue
+}
 
 export default function AdminPage() {
   const [leaders, setLeaders] = useState<Leader[]>([])
@@ -64,19 +54,22 @@ export default function AdminPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [diffData, setDiffData] = useState<DiffData | null>(null)
 
+  // Debounce search to avoid excessive API calls
+  const debouncedSearch = useDebounce(search, 300)
+
   const fetchLeaders = useCallback(async () => {
     setLoading(true)
     const params = new URLSearchParams()
     if (category) params.set('category', category)
     if (branch) params.set('branch', branch)
-    if (search) params.set('search', search)
+    if (debouncedSearch) params.set('search', debouncedSearch)
     if (includeInactive) params.set('includeInactive', 'true')
 
     const res = await fetch(`/api/admin/leaders?${params}`)
     const data = await res.json()
     setLeaders(data)
     setLoading(false)
-  }, [category, branch, search, includeInactive])
+  }, [category, branch, debouncedSearch, includeInactive])
 
   useEffect(() => {
     fetchLeaders()
@@ -166,7 +159,7 @@ export default function AdminPage() {
           onChange={(e) => setCategory(e.target.value)}
           className="px-3 py-2 border rounded"
         >
-          {CATEGORIES.map((c) => (
+          {CATEGORY_OPTIONS.map((c) => (
             <option key={c.value} value={c.value}>
               {c.label}
             </option>
@@ -178,7 +171,7 @@ export default function AdminPage() {
           onChange={(e) => setBranch(e.target.value)}
           className="px-3 py-2 border rounded"
         >
-          {BRANCHES.map((b) => (
+          {BRANCH_OPTIONS.map((b) => (
             <option key={b.value} value={b.value}>
               {b.label}
             </option>

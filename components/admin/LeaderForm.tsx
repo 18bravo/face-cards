@@ -1,17 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-
-interface Leader {
-  id: string
-  name: string
-  title: string
-  photoUrl: string
-  category: string
-  branch: string | null
-  organization: string
-  isActive: boolean
-}
+import { useState, useEffect, useRef } from 'react'
+import { Leader, CATEGORIES, BRANCHES, Category, Branch } from '@/types/admin'
 
 interface LeaderFormProps {
   leader: Leader | null
@@ -19,35 +9,17 @@ interface LeaderFormProps {
   onCancel: () => void
 }
 
-const CATEGORIES = [
-  'MILITARY_4STAR',
-  'MILITARY_3STAR',
-  'MAJOR_COMMAND',
-  'SERVICE_SECRETARY',
-  'CIVILIAN_SES',
-  'APPOINTEE',
-  'SECRETARIAT',
-]
-
-const BRANCHES = [
-  'ARMY',
-  'NAVY',
-  'AIR_FORCE',
-  'MARINE_CORPS',
-  'SPACE_FORCE',
-  'COAST_GUARD',
-]
-
 export function LeaderForm({ leader, onSave, onCancel }: LeaderFormProps) {
   const [name, setName] = useState('')
   const [title, setTitle] = useState('')
   const [photoUrl, setPhotoUrl] = useState('')
-  const [category, setCategory] = useState(CATEGORIES[0])
-  const [branch, setBranch] = useState<string>('')
+  const [category, setCategory] = useState<Category>(CATEGORIES[0].value)
+  const [branch, setBranch] = useState<Branch | ''>('')
   const [organization, setOrganization] = useState('')
   const [isActive, setIsActive] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const dialogRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (leader) {
@@ -61,6 +33,23 @@ export function LeaderForm({ leader, onSave, onCancel }: LeaderFormProps) {
     }
   }, [leader])
 
+  // Handle escape key to close modal
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        onCancel()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onCancel])
+
+  // Focus trap and initial focus
+  useEffect(() => {
+    const firstInput = dialogRef.current?.querySelector('input')
+    firstInput?.focus()
+  }, [])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
@@ -72,7 +61,7 @@ export function LeaderForm({ leader, onSave, onCancel }: LeaderFormProps) {
         title,
         photoUrl,
         category,
-        branch: branch || null,
+        branch: branch === '' ? null : branch,
         organization,
         isActive,
       })
@@ -84,20 +73,29 @@ export function LeaderForm({ leader, onSave, onCancel }: LeaderFormProps) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
-        <h2 className="text-xl font-bold mb-4">
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="leader-form-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onCancel()
+      }}
+    >
+      <div ref={dialogRef} className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
+        <h2 id="leader-form-title" className="text-xl font-bold mb-4">
           {leader ? 'Edit Leader' : 'Add Leader'}
         </h2>
 
         {error && (
-          <div className="bg-red-100 text-red-700 p-3 rounded mb-4">{error}</div>
+          <div className="bg-red-100 text-red-700 p-3 rounded mb-4" role="alert">{error}</div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Name</label>
+            <label htmlFor="leader-name" className="block text-sm font-medium mb-1">Name</label>
             <input
+              id="leader-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -107,8 +105,9 @@ export function LeaderForm({ leader, onSave, onCancel }: LeaderFormProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Title</label>
+            <label htmlFor="leader-title" className="block text-sm font-medium mb-1">Title</label>
             <input
+              id="leader-title"
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -118,8 +117,9 @@ export function LeaderForm({ leader, onSave, onCancel }: LeaderFormProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Photo URL</label>
+            <label htmlFor="leader-photo" className="block text-sm font-medium mb-1">Photo URL</label>
             <input
+              id="leader-photo"
               type="url"
               value={photoUrl}
               onChange={(e) => setPhotoUrl(e.target.value)}
@@ -130,31 +130,33 @@ export function LeaderForm({ leader, onSave, onCancel }: LeaderFormProps) {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Category</label>
+              <label htmlFor="leader-category" className="block text-sm font-medium mb-1">Category</label>
               <select
+                id="leader-category"
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
+                onChange={(e) => setCategory(e.target.value as Category)}
                 className="w-full p-2 border rounded"
               >
                 {CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat.replace(/_/g, ' ')}
+                  <option key={cat.value} value={cat.value}>
+                    {cat.label}
                   </option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Branch</label>
+              <label htmlFor="leader-branch" className="block text-sm font-medium mb-1">Branch</label>
               <select
+                id="leader-branch"
                 value={branch}
-                onChange={(e) => setBranch(e.target.value)}
+                onChange={(e) => setBranch(e.target.value as Branch | '')}
                 className="w-full p-2 border rounded"
               >
                 <option value="">None</option>
                 {BRANCHES.map((b) => (
-                  <option key={b} value={b}>
-                    {b.replace(/_/g, ' ')}
+                  <option key={b.value} value={b.value}>
+                    {b.label}
                   </option>
                 ))}
               </select>
@@ -162,8 +164,9 @@ export function LeaderForm({ leader, onSave, onCancel }: LeaderFormProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Organization</label>
+            <label htmlFor="leader-org" className="block text-sm font-medium mb-1">Organization</label>
             <input
+              id="leader-org"
               type="text"
               value={organization}
               onChange={(e) => setOrganization(e.target.value)}
@@ -176,11 +179,11 @@ export function LeaderForm({ leader, onSave, onCancel }: LeaderFormProps) {
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
-                id="isActive"
+                id="leader-active"
                 checked={isActive}
                 onChange={(e) => setIsActive(e.target.checked)}
               />
-              <label htmlFor="isActive" className="text-sm">Active</label>
+              <label htmlFor="leader-active" className="text-sm">Active</label>
             </div>
           )}
 

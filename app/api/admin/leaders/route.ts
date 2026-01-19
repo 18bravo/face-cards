@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { createLeaderSchema } from '@/lib/validations'
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -39,8 +40,20 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const data = await request.json()
+    const body = await request.json()
+    const result = createLeaderSchema.safeParse(body)
 
+    if (!result.success) {
+      const error = process.env.NODE_ENV === 'production'
+        ? 'Invalid input'
+        : result.error.flatten()
+      return NextResponse.json(
+        { error },
+        { status: 400 }
+      )
+    }
+
+    const data = result.data
     const leader = await prisma.leader.create({
       data: {
         name: data.name,
@@ -49,13 +62,15 @@ export async function POST(request: NextRequest) {
         category: data.category,
         branch: data.branch || null,
         organization: data.organization,
-        isActive: data.isActive ?? true,
+        isActive: data.isActive,
       },
     })
 
     return NextResponse.json(leader, { status: 201 })
   } catch (error) {
-    console.error('Create leader error:', error)
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Create leader error:', error)
+    }
     return NextResponse.json(
       { error: 'Failed to create leader' },
       { status: 500 }

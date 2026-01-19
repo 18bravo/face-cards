@@ -42,3 +42,20 @@ enum Branch {
   SPACE_FORCE
   COAST_GUARD
 }
+
+model RevokedToken {
+  jti       String   @id
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+model PreviewData {
+  id        String   @id @default(cuid())
+  data      Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}

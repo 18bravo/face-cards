@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { jwtVerify } from 'jose'
+import { prisma } from '@/lib/prisma'
 
 const COOKIE_NAME = 'admin_session'
 
@@ -13,7 +14,16 @@ async function verifyToken(token: string): Promise<boolean> {
   const secret = getSecret()
   if (!secret) return false
   try {
-    await jwtVerify(token, secret)
+    const { payload } = await jwtVerify(token, secret)
+    // Check if token has been revoked
+    if (payload.jti) {
+      const revoked = await prisma.revokedToken.findUnique({
+        where: { jti: payload.jti },
+      })
+      if (revoked) {
+        return false
+      }
+    }
     return true
   } catch {
     return false

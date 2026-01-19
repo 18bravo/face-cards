@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 interface LeaderDiff {
   name: string
@@ -44,11 +44,30 @@ export function DiffModal({ diff, onApply, onCancel }: DiffModalProps) {
     }
   }
 
+  // Handle escape key
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        onCancel()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onCancel])
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="diff-modal-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onCancel()
+      }}
+    >
       <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
         <div className="p-6 border-b">
-          <h2 className="text-xl font-bold">Review AI Changes</h2>
+          <h2 id="diff-modal-title" className="text-xl font-bold">Review AI Changes</h2>
           <p className="text-gray-600 mt-1">
             Found {diff.additions.length} additions, {diff.updates.length} updates,{' '}
             {diff.removals.length} removals

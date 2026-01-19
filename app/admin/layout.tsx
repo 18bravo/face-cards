@@ -1,10 +1,5 @@
 import { cookies } from 'next/headers'
 
-async function getUsername() {
-  // Username from env since we use simple auth
-  return process.env.ADMIN_USERNAME || 'Admin'
-}
-
 export default async function AdminLayout({
   children,
 }: {
@@ -12,7 +7,6 @@ export default async function AdminLayout({
 }) {
   const cookieStore = await cookies()
   const isLoggedIn = cookieStore.has('admin_session')
-  const username = await getUsername()
 
   // Login page doesn't need the header
   return (
@@ -23,7 +17,7 @@ export default async function AdminLayout({
             <h1 className="text-xl font-bold text-gray-900">Face Cards Admin</h1>
             <div className="flex items-center gap-4">
               <span className="text-sm text-gray-600">
-                Logged in as <strong>{username}</strong>
+                Logged in as <strong>Admin</strong>
               </span>
               <LogoutButton />
             </div>
@@ -36,17 +30,25 @@ export default async function AdminLayout({
 }
 
 function LogoutButton() {
+  async function handleLogout() {
+    'use server'
+    const { cookies } = await import('next/headers')
+    const { revokeSession, COOKIE_NAME } = await import('@/lib/admin-auth')
+
+    const cookieStore = await cookies()
+    const token = cookieStore.get(COOKIE_NAME)?.value
+
+    // Revoke the token first, then delete the cookie
+    if (token) {
+      await revokeSession(token)
+    }
+    cookieStore.delete(COOKIE_NAME)
+  }
+
   return (
-    <form action="/api/admin/auth" method="POST">
-      <input type="hidden" name="_method" value="DELETE" />
+    <form action={handleLogout}>
       <button
         type="submit"
-        formAction={async () => {
-          'use server'
-          const { cookies } = await import('next/headers')
-          const cookieStore = await cookies()
-          cookieStore.delete('admin_session')
-        }}
         className="text-sm text-red-600 hover:text-red-800"
       >
         Logout

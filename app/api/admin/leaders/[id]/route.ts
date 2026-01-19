@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { updateLeaderSchema } from '@/lib/validations'
 
 export async function GET(
   request: NextRequest,
@@ -25,24 +27,33 @@ export async function PUT(
   const { id } = await params
 
   try {
-    const data = await request.json()
+    const body = await request.json()
+    const result = updateLeaderSchema.safeParse(body)
 
+    if (!result.success) {
+      const error = process.env.NODE_ENV === 'production'
+        ? 'Invalid input'
+        : result.error.flatten()
+      return NextResponse.json(
+        { error },
+        { status: 400 }
+      )
+    }
+
+    const data = result.data
     const leader = await prisma.leader.update({
       where: { id },
-      data: {
-        name: data.name,
-        title: data.title,
-        photoUrl: data.photoUrl,
-        category: data.category,
-        branch: data.branch || null,
-        organization: data.organization,
-        isActive: data.isActive,
-      },
+      data,
     })
 
     return NextResponse.json(leader)
   } catch (error) {
-    console.error('Update leader error:', error)
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      return NextResponse.json({ error: 'Leader not found' }, { status: 404 })
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Update leader error:', error)
+    }
     return NextResponse.json(
       { error: 'Failed to update leader' },
       { status: 500 }
@@ -65,7 +76,12 @@ export async function DELETE(
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Delete leader error:', error)
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      return NextResponse.json({ error: 'Leader not found' }, { status: 404 })
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Delete leader error:', error)
+    }
     return NextResponse.json(
       { error: 'Failed to delete leader' },
       { status: 500 }

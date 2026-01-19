@@ -1,17 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-
-interface Leader {
-  id: string
-  name: string
-  title: string
-  photoUrl: string
-  category: string
-  branch: string | null
-  organization: string
-  isActive: boolean
-}
+import { Leader, getCategoryLabel, getBranchLabel } from '@/types/admin'
 
 interface LeaderTableProps {
   leaders: Leader[]
@@ -70,56 +60,64 @@ export function LeaderTable({ leaders, onEdit, onDelete }: LeaderTableProps) {
           </tr>
         </thead>
         <tbody>
-          {sorted.map((leader) => (
-            <tr
-              key={leader.id}
-              className={`border-b hover:bg-gray-50 ${!leader.isActive ? 'opacity-50' : ''}`}
-            >
-              <td className="px-4 py-3">
-                <img
-                  src={leader.photoUrl || fallbackUrl(leader.name)}
-                  alt={leader.name}
-                  className="w-10 h-10 rounded-full object-cover"
-                  onError={(e) => {
-                    e.currentTarget.src = fallbackUrl(leader.name)
-                  }}
-                />
-              </td>
-              <td className="px-4 py-3 font-medium">
-                {leader.name}
-                {!leader.isActive && (
-                  <span className="ml-2 text-xs text-red-500">(inactive)</span>
-                )}
-              </td>
-              <td className="px-4 py-3 text-sm text-gray-600">{leader.title}</td>
-              <td className="px-4 py-3">
-                <span className="px-2 py-1 text-xs rounded bg-blue-100 text-blue-800">
-                  {leader.category}
-                </span>
-              </td>
-              <td className="px-4 py-3">
-                {leader.branch && (
-                  <span className="px-2 py-1 text-xs rounded bg-green-100 text-green-800">
-                    {leader.branch}
-                  </span>
-                )}
-              </td>
-              <td className="px-4 py-3">
-                <button
-                  onClick={() => onEdit(leader)}
-                  className="text-blue-600 hover:text-blue-800 mr-3"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => onDelete(leader)}
-                  className="text-red-600 hover:text-red-800"
-                >
-                  Delete
-                </button>
+          {sorted.length === 0 ? (
+            <tr>
+              <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                No leaders found matching your criteria.
               </td>
             </tr>
-          ))}
+          ) : (
+            sorted.map((leader) => (
+              <tr
+                key={leader.id}
+                className={`border-b hover:bg-gray-50 ${!leader.isActive ? 'opacity-50' : ''}`}
+              >
+                <td className="px-4 py-3">
+                  <img
+                    src={leader.photoUrl || fallbackUrl(leader.name)}
+                    alt={leader.name}
+                    className="w-10 h-10 rounded-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.src = fallbackUrl(leader.name)
+                    }}
+                  />
+                </td>
+                <td className="px-4 py-3 font-medium">
+                  {leader.name}
+                  {!leader.isActive && (
+                    <span className="ml-2 text-xs text-red-500">(inactive)</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-600">{leader.title}</td>
+                <td className="px-4 py-3">
+                  <span className="px-2 py-1 text-xs rounded bg-blue-100 text-blue-800">
+                    {getCategoryLabel(leader.category)}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  {leader.branch && (
+                    <span className="px-2 py-1 text-xs rounded bg-green-100 text-green-800">
+                      {getBranchLabel(leader.branch)}
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  <button
+                    onClick={() => onEdit(leader)}
+                    className="text-blue-600 hover:text-blue-800 mr-3"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => onDelete(leader)}
+                    className="text-red-600 hover:text-red-800"
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
     </div>

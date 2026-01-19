@@ -1,50 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { jwtVerify } from 'jose'
 import { prisma } from '@/lib/prisma'
+import { applyRefreshSchema, previewDataSchema, ALLOWED_LEADER_FIELDS, PreviewDataInput } from '@/lib/validations'
 
-interface LeaderDiff {
-  id?: string
-  name: string
-  title: string
-  photoUrl: string
-  category: string
-  branch: string | null
-  organization: string
-}
-
-interface PreviewPayload {
+interface TokenPayload {
   type: string
-  additions: LeaderDiff[]
-  updates: Array<{
-    id: string
-    name: string
-    changes: Array<{ field: string; current: string; proposed: string }>
-  }>
-  removals: Array<{ id: string; name: string; title: string }>
+  previewId: string
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { previewToken } = await request.json()
+    const body = await request.json()
+    const result = applyRefreshSchema.safeParse(body)
 
-    if (!previewToken) {
+    if (!result.success) {
       return NextResponse.json(
-        { error: 'Preview token required' },
+        { error: 'Invalid input' },
         { status: 400 }
       )
     }
 
+    const { previewToken } = result.data
+
     // Verify and decode token
     const secret = new TextEncoder().encode(process.env.ADMIN_SECRET)
-    let payload: PreviewPayload
+    let previewId: string
 
     try {
       const { payload: verified } = await jwtVerify(previewToken, secret)
-      payload = verified as unknown as PreviewPayload
+      const tokenPayload = verified as unknown as TokenPayload
 
-      if (payload.type !== 'preview') {
+      if (tokenPayload.type !== 'preview' || !tokenPayload.previewId) {
         throw new Error('Invalid token type')
       }
+      previewId = tokenPayload.previewId
     } catch {
       return NextResponse.json(
         { error: 'Invalid or expired preview token' },
@@ -52,54 +41,92 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Fetch preview data from database
+    const preview = await prisma.previewData.findUnique({
+      where: { id: previewId },
+    })
+
+    if (!preview || preview.expiresAt < new Date()) {
+      // Clean up expired preview if found
+      if (preview) {
+        await prisma.previewData.delete({ where: { id: previewId } })
+      }
+      return NextResponse.json(
+        { error: 'Preview has expired. Please generate a new preview.' },
+        { status: 400 }
+      )
+    }
+
+    // Validate the preview data structure
+    const dataResult = previewDataSchema.safeParse(preview.data)
+    if (!dataResult.success) {
+      await prisma.previewData.delete({ where: { id: previewId } })
+      return NextResponse.json(
+        { error: 'Invalid preview data' },
+        { status: 400 }
+      )
+    }
+
+    const previewData: PreviewDataInput = dataResult.data
+
     // Apply changes in a transaction
     await prisma.$transaction(async (tx) => {
       // Apply additions
-      for (const addition of payload.additions) {
+      for (const addition of previewData.additions) {
         await tx.leader.create({
           data: {
             name: addition.name,
             title: addition.title,
             photoUrl: addition.photoUrl,
-            category: addition.category as never,
-            branch: addition.branch as never,
+            category: addition.category,
+            branch: addition.branch,
             organization: addition.organization,
             isActive: true,
           },
         })
       }
 
-      // Apply updates
-      for (const update of payload.updates) {
+      // Apply updates (only whitelisted fields)
+      for (const update of previewData.updates) {
         const data: Record<string, string> = {}
         for (const change of update.changes) {
-          data[change.field] = change.proposed
+          // Only allow whitelisted fields to prevent injection
+          if (ALLOWED_LEADER_FIELDS.includes(change.field as typeof ALLOWED_LEADER_FIELDS[number])) {
+            data[change.field] = change.proposed
+          }
         }
-        await tx.leader.update({
-          where: { id: update.id },
-          data,
-        })
+        if (Object.keys(data).length > 0) {
+          await tx.leader.update({
+            where: { id: update.id },
+            data,
+          })
+        }
       }
 
       // Apply removals (soft delete)
-      for (const removal of payload.removals) {
+      for (const removal of previewData.removals) {
         await tx.leader.update({
           where: { id: removal.id },
           data: { isActive: false },
         })
       }
+
+      // Delete the preview data after applying
+      await tx.previewData.delete({ where: { id: previewId } })
     })
 
     return NextResponse.json({
       success: true,
       applied: {
-        additions: payload.additions.length,
-        updates: payload.updates.length,
-        removals: payload.removals.length,
+        additions: previewData.additions.length,
+        updates: previewData.updates.length,
+        removals: previewData.removals.length,
       },
     })
   } catch (error) {
-    console.error('Apply refresh error:', error)
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Apply refresh error:', error)
+    }
     return NextResponse.json(
       { error: 'Failed to apply changes' },
       { status: 500 }

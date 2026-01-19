@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { SignJWT } from 'jose'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { fetchAllLeaders, LeaderData } from '@/lib/openai'
 
@@ -69,13 +70,20 @@ export async function POST() {
       }
     }
 
-    // Create preview token (valid for 10 minutes)
+    // Store preview data in database (expires in 10 minutes)
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
+    const preview = await prisma.previewData.create({
+      data: {
+        data: JSON.parse(JSON.stringify({ additions, updates, removals })),
+        expiresAt,
+      },
+    })
+
+    // Create lightweight token with only the preview ID
     const secret = new TextEncoder().encode(process.env.ADMIN_SECRET)
     const previewToken = await new SignJWT({
       type: 'preview',
-      additions,
-      updates,
-      removals,
+      previewId: preview.id,
     })
       .setProtectedHeader({ alg: 'HS256' })
       .setExpirationTime('10m')
@@ -91,7 +99,9 @@ export async function POST() {
 
     return NextResponse.json(result)
   } catch (error) {
-    console.error('Preview refresh error:', error)
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Preview refresh error:', error)
+    }
     return NextResponse.json(
       { error: 'Failed to fetch preview' },
       { status: 500 }
