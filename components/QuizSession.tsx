@@ -31,7 +31,7 @@ function shuffleArray<T>(array: T[]): T[] {
 }
 
 export function QuizSession({ leaders }: QuizSessionProps) {
-  const [category, setCategory] = useState<Category | ''>('')
+  const [categories, setCategories] = useState<Category[]>([])
   const [branch, setBranch] = useState<Branch | ''>('')
   const [showWeakOnly, setShowWeakOnly] = useState(false)
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -44,8 +44,9 @@ export function QuizSession({ leaders }: QuizSessionProps) {
   const filteredLeaders = useMemo(() => {
     let filtered = leaders
 
-    if (category) {
-      filtered = filtered.filter((l) => l.category === category)
+    // If categories selected, filter to only those categories
+    if (categories.length > 0) {
+      filtered = filtered.filter((l) => categories.includes(l.category))
     }
     if (branch) {
       filtered = filtered.filter((l) => l.branch === branch)
@@ -56,7 +57,7 @@ export function QuizSession({ leaders }: QuizSessionProps) {
     }
 
     return shuffleArray(filtered)
-  }, [leaders, category, branch, showWeakOnly])
+  }, [leaders, categories, branch, showWeakOnly])
 
   const currentCard = filteredLeaders[currentIndex]
 
@@ -101,7 +102,7 @@ export function QuizSession({ leaders }: QuizSessionProps) {
         <p className="text-gray-500">No cards match your filters.</p>
         <button
           onClick={() => {
-            setCategory('')
+            setCategories([])
             setBranch('')
             setShowWeakOnly(false)
           }}
@@ -145,10 +146,10 @@ export function QuizSession({ leaders }: QuizSessionProps) {
   return (
     <div className="flex flex-col items-center gap-6 py-6">
       <FilterBar
-        category={category}
+        categories={categories}
         branch={branch}
-        onCategoryChange={(c) => {
-          setCategory(c)
+        onCategoriesChange={(c) => {
+          setCategories(c)
           resetSession()
         }}
         onBranchChange={(b) => {
