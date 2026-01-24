@@ -1167,11 +1167,84 @@ const CATEGORY_LABELS: Record<OfficialCategory, string> = {
   jcs: 'Joint Chiefs',
 }
 
+// Domain definitions for clustering
+interface DomainDef {
+  id: string
+  name: string
+  color: string
+  keywords: string[]
+}
+
+const DOMAINS: DomainDef[] = [
+  {
+    id: 'technology',
+    name: 'Technology & R&D',
+    color: '#8b5cf6',
+    keywords: ['technology', 'S&T', 'research', 'engineering', 'R&E', 'laboratories', 'lab', 'CTO', 'AI', 'artificial intelligence', 'digital', 'cyber', 'innovation', 'emerging', 'critical tech'],
+  },
+  {
+    id: 'special_ops',
+    name: 'Special Operations',
+    color: '#ef4444',
+    keywords: ['special operations', 'SOF', 'SO/LIC', 'irregular warfare', 'counterterrorism', 'CT', 'MFP-11', 'SO-peculiar'],
+  },
+  {
+    id: 'nuclear',
+    name: 'Nuclear & Strategic',
+    color: '#f97316',
+    keywords: ['nuclear', 'NC3', 'strategic', 'deterrence', 'WMD', 'CBRN', 'chemical', 'biological', 'radiological', 'missile defense', 'triad'],
+  },
+  {
+    id: 'intelligence',
+    name: 'Intelligence & Security',
+    color: '#06b6d4',
+    keywords: ['intelligence', 'security', 'clearance', 'counterintelligence', 'DIA', 'NGA', 'NSA', 'NRO', 'I&S'],
+  },
+  {
+    id: 'personnel',
+    name: 'Personnel & Readiness',
+    color: '#22c55e',
+    keywords: ['personnel', 'readiness', 'manpower', 'workforce', 'recruiting', 'health', 'TRICARE', 'medical', 'family', 'MWR', 'commissary', 'reserve', 'mobilization', 'end-strength'],
+  },
+  {
+    id: 'acquisition',
+    name: 'Acquisition & Sustainment',
+    color: '#eab308',
+    keywords: ['acquisition', 'MDAP', 'ACAT', 'milestone', 'contract', 'procurement', 'logistics', 'sustainment', 'industrial base', 'supply chain', 'FMS'],
+  },
+  {
+    id: 'regional',
+    name: 'Regional & Allies',
+    color: '#ec4899',
+    keywords: ['Indo-Pacific', 'European', 'NATO', 'Middle East', 'Africa', 'CENTCOM', 'EUCOM', 'AFRICOM', 'INDOPACOM', 'SOUTHCOM', 'NORTHCOM', 'alliance', 'partner', 'security cooperation', 'China', 'Taiwan', 'Russia', 'Ukraine'],
+  },
+  {
+    id: 'space',
+    name: 'Space & Missile Defense',
+    color: '#3b82f6',
+    keywords: ['space', 'missile defense', 'MDA', 'SDA', 'SPACECOM', 'satellite', 'proliferated'],
+  },
+  {
+    id: 'cyber',
+    name: 'Cyber Operations',
+    color: '#14b8a6',
+    keywords: ['cyber', 'CYBERCOM', 'DODIN', 'network', 'information'],
+  },
+  {
+    id: 'homeland',
+    name: 'Homeland Defense',
+    color: '#a855f7',
+    keywords: ['homeland', 'DSCA', 'civil authorities', 'border', 'NORTHCOM', 'NORAD', 'domestic'],
+  },
+]
+
 export default function AuthoritiesVisualization() {
-  const [view, setView] = useState<'hierarchy' | 'type'>('hierarchy')
+  const [view, setView] = useState<'hierarchy' | 'type' | 'domains' | 'matrix' | 'overlaps'>('hierarchy')
   const [selectedOfficial, setSelectedOfficial] = useState<Official | null>(null)
   const [filterType, setFilterType] = useState<string>('all')
   const [searchTerm, setSearchTerm] = useState('')
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null)
+  const [selectedOverlapPair, setSelectedOverlapPair] = useState<[string, string] | null>(null)
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>(
     Object.keys(OFFICIALS_DATA).reduce((acc, key) => ({ ...acc, [key]: true }), {})
   )
@@ -1222,6 +1295,98 @@ export default function AuthoritiesVisualization() {
       : selectedOfficial.authorities.filter(a => a.type === filterType)
     : []
 
+  // Map officials to domains based on authority keywords
+  const getOfficialDomains = (official: Official): string[] => {
+    const domains: Set<string> = new Set()
+    const allText = [
+      official.title,
+      official.abbrev,
+      ...official.authorities.map(a => a.action),
+    ].join(' ').toLowerCase()
+
+    for (const domain of DOMAINS) {
+      for (const keyword of domain.keywords) {
+        if (allText.includes(keyword.toLowerCase())) {
+          domains.add(domain.id)
+          break
+        }
+      }
+    }
+    return Array.from(domains)
+  }
+
+  // Get officials grouped by domain with overlap info
+  const domainData = useMemo(() => {
+    const data: Record<string, { officials: (Official & { otherDomains: string[] })[], color: string, name: string }> = {}
+
+    for (const domain of DOMAINS) {
+      data[domain.id] = { officials: [], color: domain.color, name: domain.name }
+    }
+
+    for (const official of allOfficials) {
+      const domains = getOfficialDomains(official)
+      for (const domainId of domains) {
+        const otherDomains = domains.filter(d => d !== domainId)
+        data[domainId].officials.push({ ...official, otherDomains })
+      }
+    }
+
+    return data
+  }, [allOfficials])
+
+  // Get overlap statistics
+  const overlapStats = useMemo(() => {
+    const officialDomainCounts: Record<string, number> = {}
+    for (const official of allOfficials) {
+      const domains = getOfficialDomains(official)
+      officialDomainCounts[official.id] = domains.length
+    }
+
+    const multiDomainOfficials = allOfficials.filter(o => officialDomainCounts[o.id] > 1)
+    return {
+      totalMultiDomain: multiDomainOfficials.length,
+      maxDomains: Math.max(...Object.values(officialDomainCounts)),
+    }
+  }, [allOfficials])
+
+  // Matrix data: officials with their domain memberships
+  const matrixData = useMemo(() => {
+    return allOfficials
+      .map(official => ({
+        ...official,
+        domains: getOfficialDomains(official),
+      }))
+      .filter(o => o.domains.length > 0)
+      .sort((a, b) => b.domains.length - a.domains.length)
+  }, [allOfficials])
+
+  // Domain pair overlaps: which officials bridge two domains
+  const domainPairOverlaps = useMemo(() => {
+    const pairs: { domain1: DomainDef; domain2: DomainDef; officials: Official[]; key: string }[] = []
+
+    for (let i = 0; i < DOMAINS.length; i++) {
+      for (let j = i + 1; j < DOMAINS.length; j++) {
+        const domain1 = DOMAINS[i]
+        const domain2 = DOMAINS[j]
+        const bridgingOfficials = allOfficials.filter(official => {
+          const domains = getOfficialDomains(official)
+          return domains.includes(domain1.id) && domains.includes(domain2.id)
+        })
+
+        if (bridgingOfficials.length > 0) {
+          pairs.push({
+            domain1,
+            domain2,
+            officials: bridgingOfficials,
+            key: `${domain1.id}-${domain2.id}`,
+          })
+        }
+      }
+    }
+
+    return pairs.sort((a, b) => b.officials.length - a.officials.length)
+  }, [allOfficials])
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -1262,24 +1427,32 @@ export default function AuthoritiesVisualization() {
           background: 'rgba(255,255,255,0.05)',
           borderRadius: '8px',
           padding: '4px',
+          flexWrap: 'wrap',
+          justifyContent: 'center',
         }}>
-          {(['hierarchy', 'type'] as const).map(v => (
+          {([
+            { id: 'hierarchy', label: 'Hierarchy' },
+            { id: 'type', label: 'Authority Type' },
+            { id: 'domains', label: 'Domain Clusters' },
+            { id: 'matrix', label: 'Matrix' },
+            { id: 'overlaps', label: 'Domain Bridges' },
+          ] as const).map(v => (
             <button
-              key={v}
-              onClick={() => setView(v)}
+              key={v.id}
+              onClick={() => setView(v.id)}
               style={{
-                padding: '8px 16px',
+                padding: '8px 14px',
                 border: 'none',
                 borderRadius: '6px',
                 cursor: 'pointer',
-                fontSize: '0.85rem',
+                fontSize: '0.8rem',
                 fontWeight: 500,
-                background: view === v ? 'rgba(99,102,241,0.8)' : 'transparent',
-                color: view === v ? '#fff' : '#94a3b8',
+                background: view === v.id ? 'rgba(99,102,241,0.8)' : 'transparent',
+                color: view === v.id ? '#fff' : '#94a3b8',
                 transition: 'all 0.2s',
               }}
             >
-              {v === 'hierarchy' ? 'By Hierarchy' : 'By Authority Type'}
+              {v.label}
             </button>
           ))}
         </div>
@@ -1542,7 +1715,7 @@ export default function AuthoritiesVisualization() {
             )}
           </div>
         </div>
-      ) : (
+      ) : view === 'type' ? (
         /* By Type View */
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem' }}>
           {Object.entries(TYPE_COLORS).map(([type, config]) => {
@@ -1593,6 +1766,449 @@ export default function AuthoritiesVisualization() {
               </div>
             )
           })}
+        </div>
+      ) : view === 'domains' ? (
+        /* Domain Clusters View */
+        <div>
+          {/* Stats Banner */}
+          <div style={{
+            background: 'rgba(255,255,255,0.05)',
+            borderRadius: '12px',
+            padding: '1rem',
+            marginBottom: '1.5rem',
+            display: 'flex',
+            justifyContent: 'center',
+            gap: '3rem',
+            flexWrap: 'wrap',
+          }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#60a5fa' }}>{overlapStats.totalMultiDomain}</div>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Officials with Multi-Domain Authority</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#a78bfa' }}>{DOMAINS.length}</div>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Authority Domains</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#f472b6' }}>{overlapStats.maxDomains}</div>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Max Domains per Official</div>
+            </div>
+          </div>
+
+          {/* Domain Clusters Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1rem' }}>
+            {DOMAINS.map(domain => {
+              const domainInfo = domainData[domain.id]
+              if (domainInfo.officials.length === 0) return null
+
+              return (
+                <div
+                  key={domain.id}
+                  style={{
+                    background: selectedDomain === domain.id ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
+                    borderRadius: '12px',
+                    border: `1px solid ${selectedDomain === domain.id ? domain.color : 'rgba(255,255,255,0.08)'}`,
+                    overflow: 'hidden',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                  onClick={() => setSelectedDomain(selectedDomain === domain.id ? null : domain.id)}
+                >
+                  {/* Domain Header */}
+                  <div style={{
+                    padding: '1rem',
+                    background: `${domain.color}20`,
+                    borderBottom: `2px solid ${domain.color}`,
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h3 style={{ margin: 0, color: domain.color, fontSize: '0.95rem', fontWeight: 600 }}>
+                        {domain.name}
+                      </h3>
+                      <span style={{
+                        background: domain.color,
+                        color: '#fff',
+                        padding: '2px 10px',
+                        borderRadius: '12px',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                      }}>
+                        {domainInfo.officials.length} officials
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Officials in Domain */}
+                  <div style={{ padding: '0.75rem', maxHeight: selectedDomain === domain.id ? '500px' : '200px', overflowY: 'auto', transition: 'max-height 0.3s' }}>
+                    {domainInfo.officials.map((official, i) => (
+                      <div
+                        key={official.id + '-' + i}
+                        style={{
+                          padding: '0.6rem',
+                          marginBottom: '0.5rem',
+                          background: 'rgba(0,0,0,0.2)',
+                          borderRadius: '6px',
+                          borderLeft: `3px solid ${LEVEL_COLORS[official.level]}`,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                          <div>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: LEVEL_COLORS[official.level] }}>
+                              {official.abbrev}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '2px' }}>
+                              {official.name}
+                            </div>
+                          </div>
+                          {/* Overlap indicators */}
+                          {official.otherDomains.length > 0 && (
+                            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                              {official.otherDomains.map(otherId => {
+                                const otherDomain = DOMAINS.find(d => d.id === otherId)
+                                if (!otherDomain) return null
+                                return (
+                                  <span
+                                    key={otherId}
+                                    title={otherDomain.name}
+                                    style={{
+                                      width: '8px',
+                                      height: '8px',
+                                      borderRadius: '50%',
+                                      background: otherDomain.color,
+                                    }}
+                                  />
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                        {/* Show authorities when domain is selected */}
+                        {selectedDomain === domain.id && (
+                          <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                            {official.authorities.slice(0, 3).map((auth, ai) => (
+                              <div key={ai} style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '2px' }}>
+                                • {auth.action.length > 60 ? auth.action.substring(0, 60) + '...' : auth.action}
+                              </div>
+                            ))}
+                            {official.authorities.length > 3 && (
+                              <div style={{ fontSize: '0.65rem', color: '#475569' }}>
+                                +{official.authorities.length - 3} more authorities
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Domain Legend */}
+          <div style={{
+            marginTop: '1.5rem',
+            padding: '1rem',
+            background: 'rgba(0,0,0,0.3)',
+            borderRadius: '8px',
+          }}>
+            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.75rem', fontWeight: 600 }}>
+              Domain Colors (colored dots show cross-domain authority):
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+              {DOMAINS.map(domain => (
+                <div key={domain.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <span style={{
+                    width: '12px',
+                    height: '12px',
+                    borderRadius: '50%',
+                    background: domain.color,
+                  }} />
+                  <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{domain.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : view === 'matrix' ? (
+        /* Matrix View */
+        <div style={{ overflowX: 'auto' }}>
+          <div style={{
+            background: 'rgba(255,255,255,0.03)',
+            borderRadius: '12px',
+            border: '1px solid rgba(255,255,255,0.08)',
+            padding: '1rem',
+            minWidth: '900px',
+          }}>
+            {/* Matrix Header */}
+            <div style={{ display: 'flex', marginBottom: '0.5rem' }}>
+              <div style={{ width: '180px', flexShrink: 0 }} />
+              {DOMAINS.map(domain => (
+                <div
+                  key={domain.id}
+                  style={{
+                    width: '80px',
+                    flexShrink: 0,
+                    textAlign: 'center',
+                    padding: '0.5rem 0.25rem',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: '0.6rem',
+                      color: domain.color,
+                      fontWeight: 600,
+                      transform: 'rotate(-45deg)',
+                      transformOrigin: 'center',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {domain.name}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Matrix Rows */}
+            <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
+              {matrixData.map((official, rowIndex) => (
+                <div
+                  key={official.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    background: rowIndex % 2 === 0 ? 'rgba(0,0,0,0.2)' : 'transparent',
+                    borderRadius: '4px',
+                  }}
+                >
+                  {/* Official name */}
+                  <div
+                    style={{
+                      width: '180px',
+                      flexShrink: 0,
+                      padding: '0.4rem 0.5rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '50%',
+                        background: LEVEL_COLORS[official.level],
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div>
+                      <div style={{ fontSize: '0.7rem', fontWeight: 600, color: LEVEL_COLORS[official.level] }}>
+                        {official.abbrev}
+                      </div>
+                      <div style={{ fontSize: '0.6rem', color: '#64748b' }}>
+                        {official.domains.length} domains
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Domain cells */}
+                  {DOMAINS.map(domain => {
+                    const isInDomain = official.domains.includes(domain.id)
+                    return (
+                      <div
+                        key={domain.id}
+                        style={{
+                          width: '80px',
+                          height: '32px',
+                          flexShrink: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        {isInDomain && (
+                          <div
+                            style={{
+                              width: '24px',
+                              height: '24px',
+                              borderRadius: '4px',
+                              background: domain.color,
+                              boxShadow: `0 0 8px ${domain.color}80`,
+                            }}
+                          />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Matrix Legend */}
+          <div style={{
+            marginTop: '1rem',
+            padding: '1rem',
+            background: 'rgba(0,0,0,0.3)',
+            borderRadius: '8px',
+          }}>
+            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.5rem' }}>
+              <strong>Reading the Matrix:</strong> Each row is an official, each column is a domain.
+              Colored squares show domain authority. Officials are sorted by number of domains (most to least).
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Domain Bridges (Overlap Focus) View */
+        <div>
+          {/* Stats */}
+          <div style={{
+            background: 'rgba(255,255,255,0.05)',
+            borderRadius: '12px',
+            padding: '1rem',
+            marginBottom: '1.5rem',
+            textAlign: 'center',
+          }}>
+            <div style={{ fontSize: '2rem', fontWeight: 700, color: '#60a5fa' }}>
+              {domainPairOverlaps.length}
+            </div>
+            <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+              Domain pairs with bridging officials
+            </div>
+          </div>
+
+          {/* Domain Pair Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1rem' }}>
+            {domainPairOverlaps.map(pair => {
+              const isSelected = selectedOverlapPair?.[0] === pair.domain1.id && selectedOverlapPair?.[1] === pair.domain2.id
+
+              return (
+                <div
+                  key={pair.key}
+                  onClick={() => setSelectedOverlapPair(isSelected ? null : [pair.domain1.id, pair.domain2.id])}
+                  style={{
+                    background: isSelected ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    overflow: 'hidden',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {/* Pair Header */}
+                  <div style={{
+                    padding: '1rem',
+                    background: 'rgba(0,0,0,0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <span style={{
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        background: pair.domain1.color,
+                        color: '#fff',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                      }}>
+                        {pair.domain1.name}
+                      </span>
+                      <span style={{ color: '#64748b', fontSize: '1.2rem' }}>↔</span>
+                      <span style={{
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        background: pair.domain2.color,
+                        color: '#fff',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                      }}>
+                        {pair.domain2.name}
+                      </span>
+                    </div>
+                    <span style={{
+                      background: 'rgba(255,255,255,0.15)',
+                      padding: '4px 12px',
+                      borderRadius: '12px',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: '#fff',
+                    }}>
+                      {pair.officials.length} bridge{pair.officials.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+
+                  {/* Bridging Officials */}
+                  <div style={{
+                    padding: '0.75rem',
+                    maxHeight: isSelected ? '400px' : '120px',
+                    overflowY: 'auto',
+                    transition: 'max-height 0.3s',
+                  }}>
+                    {pair.officials.map(official => (
+                      <div
+                        key={official.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          padding: '0.5rem',
+                          marginBottom: '0.4rem',
+                          background: 'rgba(0,0,0,0.2)',
+                          borderRadius: '6px',
+                          borderLeft: `3px solid ${LEVEL_COLORS[official.level]}`,
+                        }}
+                      >
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: '0.8rem', fontWeight: 600, color: LEVEL_COLORS[official.level] }}>
+                            {official.abbrev}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                            {official.name}
+                          </div>
+                        </div>
+                        {/* Show all domains this official spans */}
+                        <div style={{ display: 'flex', gap: '3px' }}>
+                          {getOfficialDomains(official).map(domainId => {
+                            const domain = DOMAINS.find(d => d.id === domainId)
+                            if (!domain) return null
+                            return (
+                              <span
+                                key={domainId}
+                                title={domain.name}
+                                style={{
+                                  width: '10px',
+                                  height: '10px',
+                                  borderRadius: '50%',
+                                  background: domain.color,
+                                  border: (domainId === pair.domain1.id || domainId === pair.domain2.id)
+                                    ? '2px solid #fff'
+                                    : 'none',
+                                }}
+                              />
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Overlap Legend */}
+          <div style={{
+            marginTop: '1.5rem',
+            padding: '1rem',
+            background: 'rgba(0,0,0,0.3)',
+            borderRadius: '8px',
+          }}>
+            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+              <strong>Domain Bridges:</strong> Shows which officials have authority spanning multiple domains.
+              Use this to identify key coordination points. White-bordered dots indicate the bridged domains;
+              other dots show additional domains that official spans.
+            </div>
+          </div>
         </div>
       )}
 

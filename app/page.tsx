@@ -22,6 +22,18 @@ export default function Home() {
           >
             Explore Leadership Authorities
           </Link>
+          <Link
+            href="/3d"
+            className="inline-block px-8 py-3 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-500 transition-colors"
+          >
+            3D Defense Enterprise
+          </Link>
+          <Link
+            href="/landing"
+            className="inline-block px-8 py-3 border-2 border-indigo-600 text-indigo-600 rounded-lg font-medium hover:bg-indigo-50 transition-colors"
+          >
+            View Cinematic Landing
+          </Link>
         </div>
         <p className="text-sm text-gray-400">
           Data updated daily from official DoD sources
