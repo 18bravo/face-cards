@@ -1767,7 +1767,7 @@ export default function AuthoritiesVisualization() {
             )
           })}
         </div>
-      ) : (
+      ) : view === 'domains' ? (
         /* Domain Clusters View */
         <div>
           {/* Stats Banner */}
