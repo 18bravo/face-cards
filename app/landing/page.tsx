@@ -113,6 +113,13 @@ export default function LandingPage() {
             >
               Explore Authorities
             </Link>
+
+            <Link
+              href="/3d"
+              className="px-8 py-4 border-2 border-amber-500/50 text-amber-400 font-bold rounded-xl transition-all hover:border-amber-400 hover:text-amber-300 hover:scale-105 hover:shadow-lg hover:shadow-amber-500/20"
+            >
+              3D Enterprise View
+            </Link>
           </motion.div>
 
           {/* Scroll Indicator */}
@@ -267,6 +274,9 @@ export default function LandingPage() {
             </Link>
             <Link href="/authorities" className="text-slate-400 hover:text-white transition-colors text-sm">
               Authorities
+            </Link>
+            <Link href="/3d" className="text-amber-400 hover:text-amber-300 transition-colors text-sm">
+              3D View
             </Link>
           </div>
         </div>
