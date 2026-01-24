@@ -8,9 +8,14 @@ export default function AboutPage() {
           <Link href="/" className="text-xl font-bold text-gray-900">
             Face Cards
           </Link>
-          <Link href="/study" className="text-sm text-blue-600 hover:text-blue-700">
-            Study
-          </Link>
+          <div className="flex gap-4">
+            <Link href="/study" className="text-sm text-blue-600 hover:text-blue-700">
+              Study
+            </Link>
+            <Link href="/authorities" className="text-sm text-gray-500 hover:text-gray-700">
+              Authorities
+            </Link>
+          </div>
         </div>
       </header>
 

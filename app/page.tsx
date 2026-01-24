@@ -9,12 +9,20 @@ export default function Home() {
           Learn the faces and names of DoD senior leadership. Quiz yourself with
           flashcards featuring military and civilian leaders.
         </p>
-        <Link
-          href="/study"
-          className="inline-block px-8 py-4 bg-blue-600 text-white rounded-lg font-semibold text-lg hover:bg-blue-700 transition-colors"
-        >
-          Start Studying
-        </Link>
+        <div className="flex flex-col gap-3">
+          <Link
+            href="/study"
+            className="inline-block px-8 py-4 bg-blue-600 text-white rounded-lg font-semibold text-lg hover:bg-blue-700 transition-colors"
+          >
+            Start Studying
+          </Link>
+          <Link
+            href="/authorities"
+            className="inline-block px-8 py-3 bg-slate-800 text-white rounded-lg font-medium hover:bg-slate-700 transition-colors"
+          >
+            Explore Leadership Authorities
+          </Link>
+        </div>
         <p className="text-sm text-gray-400">
           Data updated daily from official DoD sources
         </p>

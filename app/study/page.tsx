@@ -17,9 +17,14 @@ export default async function StudyPage() {
           <Link href="/" className="text-xl font-bold text-gray-900">
             Face Cards
           </Link>
-          <Link href="/about" className="text-sm text-gray-500 hover:text-gray-700">
-            About
-          </Link>
+          <div className="flex gap-4">
+            <Link href="/authorities" className="text-sm text-gray-500 hover:text-gray-700">
+              Authorities
+            </Link>
+            <Link href="/about" className="text-sm text-gray-500 hover:text-gray-700">
+              About
+            </Link>
+          </div>
         </div>
       </header>
 
