@@ -4,7 +4,11 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import SimulationPanel from '@/components/SimulationPanel'
 import type { UnitMarker, SimulationEvent } from '@/types/military'
-import { createInitialState, advanceTick, issueOrder, type SimulationState, type UnitOrder } from '@/lib/simulation-engine'
+import {
+  createInitialState, advanceTick, issueOrder, resetSimulation,
+  takeSnapshot, restoreSnapshot,
+  type SimulationState, type UnitOrder, type SimulationSnapshot,
+} from '@/lib/simulation-engine'
 import Link from 'next/link'
 
 const GlobeViewer = dynamic(() => import('@/components/GlobeViewer'), {
@@ -73,6 +77,7 @@ export default function GlobePage() {
   const [tickSpeed, setTickSpeed] = useState(1000) // ms per tick
   const [placementMode, setPlacementMode] = useState(false)
   const [pendingPlacement, setPendingPlacement] = useState<{ latitude: number; longitude: number } | null>(null)
+  const [snapshots, setSnapshots] = useState<SimulationSnapshot[]>([])
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Simulation tick loop
@@ -145,6 +150,28 @@ export default function GlobePage() {
   const pauseSimulation = useCallback(() => {
     setSimState(prev => ({ ...prev, isRunning: false }))
   }, [])
+
+  const handleReset = useCallback(() => {
+    setSimState(resetSimulation(DEMO_UNITS))
+    setSelectedUnit(null)
+    setOrderMode(null)
+    setPlacementMode(false)
+    setPendingPlacement(null)
+    setSnapshots([])
+  }, [])
+
+  const handleTakeSnapshot = useCallback(() => {
+    setSnapshots(prev => [...prev, takeSnapshot(simState)])
+  }, [simState])
+
+  const handleRestoreSnapshot = useCallback((index: number) => {
+    const snap = snapshots[index]
+    if (snap) {
+      setSimState(restoreSnapshot(snap))
+      setSelectedUnit(null)
+      setOrderMode(null)
+    }
+  }, [snapshots])
 
   const handleInjectEvent = useCallback((event: { type: string; description: string; magnitude: number }) => {
     setSimState(prev => ({
@@ -231,6 +258,33 @@ export default function GlobePage() {
               </button>
             ))}
           </div>
+
+          <div className="h-4 w-px bg-gray-800" />
+
+          {/* Snapshot / Reset controls */}
+          <button
+            onClick={handleTakeSnapshot}
+            className="px-2 py-0.5 text-[10px] font-mono text-gray-400 hover:text-cyan-400 bg-gray-800 rounded"
+            title="Save snapshot"
+          >
+            SAVE
+          </button>
+          {snapshots.length > 0 && (
+            <button
+              onClick={() => handleRestoreSnapshot(snapshots.length - 1)}
+              className="px-2 py-0.5 text-[10px] font-mono text-gray-400 hover:text-amber-400 bg-gray-800 rounded"
+              title={`Restore T+${snapshots[snapshots.length - 1].tick}h`}
+            >
+              RESTORE T+{snapshots[snapshots.length - 1].tick}h
+            </button>
+          )}
+          <button
+            onClick={handleReset}
+            className="px-2 py-0.5 text-[10px] font-mono text-gray-400 hover:text-red-400 bg-gray-800 rounded"
+            title="Reset simulation"
+          >
+            RESET
+          </button>
 
           <div className="h-4 w-px bg-gray-800" />
 

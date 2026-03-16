@@ -216,13 +216,117 @@ export function issueOrder(state: SimulationState, order: UnitOrder): Simulation
   return { ...state, orders: newOrders }
 }
 
+/** Reset simulation back to initial units, clearing all state */
+export function resetSimulation(initialUnits: UnitMarker[]): SimulationState {
+  return createInitialState(initialUnits)
+}
+
+/** Serializable snapshot for save/restore */
+export interface SimulationSnapshot {
+  tick: number
+  units: UnitMarker[]
+  events: SimulationEvent[]
+}
+
+/** Take a snapshot of the current state */
+export function takeSnapshot(state: SimulationState): SimulationSnapshot {
+  return {
+    tick: state.tick,
+    units: state.units.map(u => ({ ...u })),
+    events: [...state.events],
+  }
+}
+
+/** Restore from a snapshot */
+export function restoreSnapshot(snapshot: SimulationSnapshot): SimulationState {
+  return {
+    tick: snapshot.tick,
+    units: snapshot.units.map(u => ({ ...u })),
+    orders: new Map(),
+    events: [...snapshot.events],
+    detections: new Map(),
+    engagements: [],
+    isRunning: false,
+  }
+}
+
+/**
+ * RED Force AI — auto-issues orders for RED faction units that are idle.
+ * Strategy: attack nearest detected hostile, or advance toward known enemy positions.
+ */
+function redForceAI(
+  units: UnitMarker[],
+  orders: Map<string, UnitOrder>,
+  detections: Map<string, Set<string>>,
+): Map<string, UnitOrder> {
+  const newOrders = new Map(orders)
+
+  for (const unit of units) {
+    if (unit.faction !== 'RED') continue
+    if (unit.status === 'DESTROYED') continue
+    if (newOrders.has(unit.id)) continue // already has an order
+    if (unit.status === 'ENGAGED') continue // fighting
+
+    // Find nearest hostile unit
+    let nearestEnemy: UnitMarker | null = null
+    let nearestDist = Infinity
+
+    // Prefer detected units first
+    const detected = detections.get(unit.id)
+    const candidates = detected && detected.size > 0
+      ? units.filter(u => detected.has(u.id) && u.status !== 'DESTROYED')
+      : units.filter(u => isHostile(unit, u) && u.status !== 'DESTROYED')
+
+    for (const enemy of candidates) {
+      const dist = haversineDistance(unit.position, enemy.position)
+      if (dist < nearestDist) {
+        nearestDist = dist
+        nearestEnemy = enemy
+      }
+    }
+
+    if (!nearestEnemy) continue
+
+    const engRange = getEngagementRange(unit.unitType)
+
+    // If within engagement range, attack
+    if (nearestDist <= engRange * 2) {
+      newOrders.set(unit.id, {
+        unitId: unit.id,
+        type: 'ATTACK',
+        destination: nearestEnemy.position,
+        targetId: nearestEnemy.id,
+      })
+    }
+    // Static defense units (MISSILE, AIR_DEFENSE) hold position
+    else if (unit.unitType === 'MISSILE' || unit.unitType === 'AIR_DEFENSE' || unit.unitType === 'CYBER') {
+      // These units hold position and engage at range, don't move
+      continue
+    }
+    // Mobile units advance toward nearest enemy
+    else if (nearestDist <= getDetectionRange(unit.unitType) * 1.5) {
+      newOrders.set(unit.id, {
+        unitId: unit.id,
+        type: 'ATTACK',
+        destination: nearestEnemy.position,
+        targetId: nearestEnemy.id,
+      })
+    }
+  }
+
+  return newOrders
+}
+
 export function advanceTick(state: SimulationState): SimulationState {
   const tick = state.tick + 1
   const newEvents: SimulationEvent[] = []
   let units = state.units.map(u => ({ ...u }))
-  const orders = new Map(state.orders)
+  let orders = new Map(state.orders)
   const detections = new Map<string, Set<string>>()
   const engagements = [...state.engagements]
+
+  // ── Phase 0: RED Force AI ──────────────────────────────
+  orders = redForceAI(units, orders, state.detections)
 
   // ── Phase 1: Execute movement orders ──────────────────
   for (const unit of units) {
