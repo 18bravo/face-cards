@@ -6,9 +6,10 @@ import SimulationPanel from '@/components/SimulationPanel'
 import type { UnitMarker, SimulationEvent } from '@/types/military'
 import {
   createInitialState, advanceTick, issueOrder, resetSimulation,
-  takeSnapshot, restoreSnapshot,
-  type SimulationState, type UnitOrder, type SimulationSnapshot,
+  takeSnapshot, restoreSnapshot, setAIEnabled, generateAfterActionReport,
+  type SimulationState, type UnitOrder, type SimulationSnapshot, type AfterActionReport,
 } from '@/lib/simulation-engine'
+import AfterActionReportModal from '@/components/AfterActionReport'
 import Link from 'next/link'
 
 const GlobeViewer = dynamic(() => import('@/components/GlobeViewer'), {
@@ -78,6 +79,7 @@ export default function GlobePage() {
   const [placementMode, setPlacementMode] = useState(false)
   const [pendingPlacement, setPendingPlacement] = useState<{ latitude: number; longitude: number } | null>(null)
   const [snapshots, setSnapshots] = useState<SimulationSnapshot[]>([])
+  const [aarReport, setAarReport] = useState<AfterActionReport | null>(null)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Simulation tick loop
@@ -158,7 +160,17 @@ export default function GlobePage() {
     setPlacementMode(false)
     setPendingPlacement(null)
     setSnapshots([])
+    setAarReport(null)
   }, [])
+
+  const handleToggleAI = useCallback((faction: 'blue' | 'red') => {
+    setSimState(prev => setAIEnabled(prev, faction, !prev.aiEnabled[faction]))
+  }, [])
+
+  const handleGenerateAAR = useCallback(() => {
+    setSimState(prev => ({ ...prev, isRunning: false }))
+    setAarReport(generateAfterActionReport(DEMO_UNITS, simState))
+  }, [simState])
 
   const handleTakeSnapshot = useCallback(() => {
     setSnapshots(prev => [...prev, takeSnapshot(simState)])
@@ -261,7 +273,30 @@ export default function GlobePage() {
 
           <div className="h-4 w-px bg-gray-800" />
 
-          {/* Snapshot / Reset controls */}
+          {/* AI toggles */}
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-mono text-gray-500">AI:</span>
+            <button
+              onClick={() => handleToggleAI('red')}
+              className={`px-1.5 py-0.5 text-[10px] font-mono rounded ${
+                simState.aiEnabled.red ? 'bg-red-600/30 text-red-400 border border-red-600/50' : 'text-gray-600 bg-gray-800'
+              }`}
+            >
+              RED
+            </button>
+            <button
+              onClick={() => handleToggleAI('blue')}
+              className={`px-1.5 py-0.5 text-[10px] font-mono rounded ${
+                simState.aiEnabled.blue ? 'bg-blue-600/30 text-blue-400 border border-blue-600/50' : 'text-gray-600 bg-gray-800'
+              }`}
+            >
+              BLUE
+            </button>
+          </div>
+
+          <div className="h-4 w-px bg-gray-800" />
+
+          {/* Snapshot / Reset / AAR controls */}
           <button
             onClick={handleTakeSnapshot}
             className="px-2 py-0.5 text-[10px] font-mono text-gray-400 hover:text-cyan-400 bg-gray-800 rounded"
@@ -276,6 +311,15 @@ export default function GlobePage() {
               title={`Restore T+${snapshots[snapshots.length - 1].tick}h`}
             >
               RESTORE T+{snapshots[snapshots.length - 1].tick}h
+            </button>
+          )}
+          {simState.tick > 0 && (
+            <button
+              onClick={handleGenerateAAR}
+              className="px-2 py-0.5 text-[10px] font-mono text-gray-400 hover:text-green-400 bg-gray-800 rounded"
+              title="Generate after-action report"
+            >
+              AAR
             </button>
           )}
           <button
@@ -426,6 +470,11 @@ export default function GlobePage() {
           </div>
         )}
       </div>
+
+      {/* After-Action Report modal */}
+      {aarReport && (
+        <AfterActionReportModal report={aarReport} onClose={() => setAarReport(null)} />
+      )}
     </div>
   )
 }

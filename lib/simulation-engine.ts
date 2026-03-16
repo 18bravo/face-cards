@@ -93,6 +93,13 @@ export interface UnitOrder {
   targetId?: string // for ATTACK orders
 }
 
+export interface SupplyState {
+  unitId: string
+  supplyLevel: number       // 0-1, decreases when far from LOGISTICS units
+  lastResupplyTick: number
+  distanceToSupply: number  // km to nearest friendly LOGISTICS unit
+}
+
 export interface SimulationState {
   tick: number
   units: UnitMarker[]
@@ -100,7 +107,9 @@ export interface SimulationState {
   events: SimulationEvent[]
   detections: Map<string, Set<string>> // unitId -> detected enemy unitIds
   engagements: Engagement[]
+  supply: Map<string, SupplyState>
   isRunning: boolean
+  aiEnabled: { blue: boolean; red: boolean }
 }
 
 interface Engagement {
@@ -206,7 +215,9 @@ export function createInitialState(units: UnitMarker[]): SimulationState {
     events: [],
     detections: new Map(),
     engagements: [],
+    supply: new Map(),
     isRunning: false,
+    aiEnabled: { blue: false, red: true },
   }
 }
 
@@ -246,36 +257,41 @@ export function restoreSnapshot(snapshot: SimulationSnapshot): SimulationState {
     events: [...snapshot.events],
     detections: new Map(),
     engagements: [],
+    supply: new Map(),
     isRunning: false,
+    aiEnabled: { blue: false, red: true },
   }
 }
 
 /**
- * RED Force AI — auto-issues orders for RED faction units that are idle.
- * Strategy: attack nearest detected hostile, or advance toward known enemy positions.
+ * Faction AI — auto-issues orders for idle units of a given faction.
+ * RED strategy: aggressive — attack nearest detected hostile, advance toward enemies.
+ * BLUE strategy: defensive — engage hostiles that enter detection range, hold positions.
  */
-function redForceAI(
+function factionAI(
+  faction: 'RED' | 'BLUE',
   units: UnitMarker[],
   orders: Map<string, UnitOrder>,
   detections: Map<string, Set<string>>,
 ): Map<string, UnitOrder> {
   const newOrders = new Map(orders)
+  const isAggressive = faction === 'RED'
 
   for (const unit of units) {
-    if (unit.faction !== 'RED') continue
+    if (unit.faction !== faction) continue
     if (unit.status === 'DESTROYED') continue
-    if (newOrders.has(unit.id)) continue // already has an order
-    if (unit.status === 'ENGAGED') continue // fighting
+    if (newOrders.has(unit.id)) continue
+    if (unit.status === 'ENGAGED') continue
 
-    // Find nearest hostile unit
     let nearestEnemy: UnitMarker | null = null
     let nearestDist = Infinity
 
-    // Prefer detected units first
     const detected = detections.get(unit.id)
     const candidates = detected && detected.size > 0
       ? units.filter(u => detected.has(u.id) && u.status !== 'DESTROYED')
-      : units.filter(u => isHostile(unit, u) && u.status !== 'DESTROYED')
+      : isAggressive
+        ? units.filter(u => isHostile(unit, u) && u.status !== 'DESTROYED')
+        : [] // BLUE only reacts to detected threats
 
     for (const enemy of candidates) {
       const dist = haversineDistance(unit.position, enemy.position)
@@ -288,33 +304,203 @@ function redForceAI(
     if (!nearestEnemy) continue
 
     const engRange = getEngagementRange(unit.unitType)
+    const detRange = getDetectionRange(unit.unitType)
 
-    // If within engagement range, attack
-    if (nearestDist <= engRange * 2) {
-      newOrders.set(unit.id, {
-        unitId: unit.id,
-        type: 'ATTACK',
-        destination: nearestEnemy.position,
-        targetId: nearestEnemy.id,
-      })
-    }
-    // Static defense units (MISSILE, AIR_DEFENSE) hold position
-    else if (unit.unitType === 'MISSILE' || unit.unitType === 'AIR_DEFENSE' || unit.unitType === 'CYBER') {
-      // These units hold position and engage at range, don't move
+    // Static defense units hold position and only engage at range
+    if (unit.unitType === 'MISSILE' || unit.unitType === 'AIR_DEFENSE' || unit.unitType === 'CYBER') {
+      if (nearestDist <= engRange) {
+        newOrders.set(unit.id, {
+          unitId: unit.id,
+          type: 'ATTACK',
+          destination: nearestEnemy.position,
+          targetId: nearestEnemy.id,
+        })
+      }
       continue
     }
-    // Mobile units advance toward nearest enemy
-    else if (nearestDist <= getDetectionRange(unit.unitType) * 1.5) {
-      newOrders.set(unit.id, {
-        unitId: unit.id,
-        type: 'ATTACK',
-        destination: nearestEnemy.position,
-        targetId: nearestEnemy.id,
-      })
+
+    if (isAggressive) {
+      // RED: attack if within 2x engagement range or 1.5x detection range
+      if (nearestDist <= engRange * 2 || nearestDist <= detRange * 1.5) {
+        newOrders.set(unit.id, {
+          unitId: unit.id,
+          type: 'ATTACK',
+          destination: nearestEnemy.position,
+          targetId: nearestEnemy.id,
+        })
+      }
+    } else {
+      // BLUE: defensive posture — engage threats within detection range
+      if (nearestDist <= engRange * 1.5) {
+        // Close threat — attack
+        newOrders.set(unit.id, {
+          unitId: unit.id,
+          type: 'ATTACK',
+          destination: nearestEnemy.position,
+          targetId: nearestEnemy.id,
+        })
+      } else if (nearestDist <= detRange) {
+        // Detected but not close — defend in place
+        newOrders.set(unit.id, {
+          unitId: unit.id,
+          type: 'DEFEND',
+          destination: unit.position,
+        })
+      }
     }
   }
 
   return newOrders
+}
+
+/** Calculate supply distances and degrade readiness for unsupplied units */
+function updateSupplyLines(
+  units: UnitMarker[],
+  supply: Map<string, SupplyState>,
+  tick: number,
+  newEvents: SimulationEvent[],
+): Map<string, SupplyState> {
+  const newSupply = new Map<string, SupplyState>()
+  const SUPPLY_RANGE_KM = 500 // max effective supply range
+  const SUPPLY_DEGRADE_RATE = 0.01 // per tick when out of supply
+  const SUPPLY_RECOVER_RATE = 0.02 // per tick when in supply
+
+  for (const unit of units) {
+    if (unit.status === 'DESTROYED') continue
+    if (unit.unitType === 'LOGISTICS') continue // logistics units self-supply
+
+    // Find nearest friendly LOGISTICS unit
+    let minDist = Infinity
+    for (const other of units) {
+      if (other.status === 'DESTROYED') continue
+      if (other.unitType !== 'LOGISTICS') continue
+      if (other.faction !== unit.faction) continue
+      const dist = haversineDistance(unit.position, other.position)
+      if (dist < minDist) minDist = dist
+    }
+
+    const prev = supply.get(unit.id)
+    const prevLevel = prev?.supplyLevel ?? 1.0
+
+    let supplyLevel: number
+    if (minDist <= SUPPLY_RANGE_KM) {
+      supplyLevel = Math.min(1.0, prevLevel + SUPPLY_RECOVER_RATE)
+    } else {
+      supplyLevel = Math.max(0, prevLevel - SUPPLY_DEGRADE_RATE)
+      // Apply readiness penalty when low on supply
+      if (supplyLevel < 0.3) {
+        unit.readiness = Math.max(0.1, unit.readiness - 0.005)
+      }
+    }
+
+    // Supply warning events
+    if (supplyLevel < 0.2 && (prevLevel >= 0.2 || !prev)) {
+      newEvents.push({
+        tick,
+        type: 'SUPPLY',
+        title: `${unit.designation} critically low on supply`,
+        description: `${unit.faction} ${unit.unitType} supply at ${(supplyLevel * 100).toFixed(0)}%. Nearest supply: ${minDist === Infinity ? 'NONE' : minDist.toFixed(0) + 'km'}`,
+        position: unit.position,
+        severity: 'WARNING',
+      })
+    }
+
+    newSupply.set(unit.id, {
+      unitId: unit.id,
+      supplyLevel,
+      lastResupplyTick: minDist <= SUPPLY_RANGE_KM ? tick : (prev?.lastResupplyTick ?? 0),
+      distanceToSupply: minDist === Infinity ? -1 : minDist,
+    })
+  }
+
+  return newSupply
+}
+
+/** Toggle faction AI on/off */
+export function setAIEnabled(
+  state: SimulationState,
+  faction: 'blue' | 'red',
+  enabled: boolean,
+): SimulationState {
+  return {
+    ...state,
+    aiEnabled: { ...state.aiEnabled, [faction]: enabled },
+  }
+}
+
+/** After-action report data */
+export interface AfterActionReport {
+  totalTicks: number
+  factions: {
+    faction: string
+    initialStrength: number
+    finalStrength: number
+    casualties: number
+    unitsDestroyed: number
+    unitsRemaining: number
+  }[]
+  engagementCount: number
+  detectionCount: number
+  escalationCount: number
+  keyEvents: SimulationEvent[]
+  winner: string | null
+}
+
+/** Generate after-action report from simulation state */
+export function generateAfterActionReport(
+  initialUnits: UnitMarker[],
+  state: SimulationState,
+): AfterActionReport {
+  const factions = ['BLUE', 'RED', 'GREEN'] as const
+
+  const factionStats = factions.map(faction => {
+    const initial = initialUnits.filter(u => u.faction === faction)
+    const current = state.units.filter(u => u.faction === faction)
+    const initialStr = initial.reduce((s, u) => s + u.strength, 0)
+    const finalStr = current.reduce((s, u) => s + u.strength, 0)
+    const destroyed = current.filter(u => u.status === 'DESTROYED').length
+
+    return {
+      faction,
+      initialStrength: initialStr,
+      finalStrength: finalStr,
+      casualties: initialStr - finalStr,
+      unitsDestroyed: destroyed,
+      unitsRemaining: current.length - destroyed,
+    }
+  }).filter(f => f.initialStrength > 0)
+
+  const engagementCount = state.events.filter(e => e.type === 'ENGAGEMENT').length
+  const detectionCount = state.events.filter(e => e.type === 'DETECTION').length
+  const escalationCount = state.events.filter(e => e.type === 'ESCALATION').length
+
+  // Key events: FLASH severity + first/last engagement + destruction events
+  const keyEvents = state.events.filter(e =>
+    e.severity === 'FLASH' || e.severity === 'CRITICAL' || e.type === 'CASUALTY'
+  ).slice(-20) // last 20 critical events
+
+  // Determine winner by casualty ratio
+  const blueStats = factionStats.find(f => f.faction === 'BLUE')
+  const redStats = factionStats.find(f => f.faction === 'RED')
+  let winner: string | null = null
+  if (blueStats && redStats) {
+    const blueRatio = blueStats.finalStrength / Math.max(1, blueStats.initialStrength)
+    const redRatio = redStats.finalStrength / Math.max(1, redStats.initialStrength)
+    if (redStats.unitsRemaining === 0) winner = 'BLUE'
+    else if (blueStats.unitsRemaining === 0) winner = 'RED'
+    else if (blueRatio > redRatio * 1.5) winner = 'BLUE'
+    else if (redRatio > blueRatio * 1.5) winner = 'RED'
+  }
+
+  return {
+    totalTicks: state.tick,
+    factions: factionStats,
+    engagementCount,
+    detectionCount,
+    escalationCount,
+    keyEvents,
+    winner,
+  }
 }
 
 export function advanceTick(state: SimulationState): SimulationState {
@@ -325,8 +511,13 @@ export function advanceTick(state: SimulationState): SimulationState {
   const detections = new Map<string, Set<string>>()
   const engagements = [...state.engagements]
 
-  // ── Phase 0: RED Force AI ──────────────────────────────
-  orders = redForceAI(units, orders, state.detections)
+  // ── Phase 0: Faction AI ────────────────────────────────
+  if (state.aiEnabled.red) {
+    orders = factionAI('RED', units, orders, state.detections)
+  }
+  if (state.aiEnabled.blue) {
+    orders = factionAI('BLUE', units, orders, state.detections)
+  }
 
   // ── Phase 1: Execute movement orders ──────────────────
   for (const unit of units) {
@@ -531,6 +722,9 @@ export function advanceTick(state: SimulationState): SimulationState {
     }
   }
 
+  // ── Phase 4.5: Supply line calculation ─────────────────
+  const supply = updateSupplyLines(units, state.supply, tick, newEvents)
+
   // ── Phase 5: Tick event ───────────────────────────────
   const aliveBlue = units.filter(u => u.faction === 'BLUE' && u.status !== 'DESTROYED')
   const aliveRed = units.filter(u => u.faction === 'RED' && u.status !== 'DESTROYED')
@@ -556,6 +750,7 @@ export function advanceTick(state: SimulationState): SimulationState {
     events: [...state.events, ...newEvents],
     detections,
     engagements,
+    supply,
     isRunning: state.isRunning,
   }
 }

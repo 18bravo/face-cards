@@ -114,6 +114,8 @@ describe('simulation-engine exports smoke test', () => {
     expect(engine.resetSimulation).toBeTypeOf('function')
     expect(engine.takeSnapshot).toBeTypeOf('function')
     expect(engine.restoreSnapshot).toBeTypeOf('function')
+    expect(engine.setAIEnabled).toBeTypeOf('function')
+    expect(engine.generateAfterActionReport).toBeTypeOf('function')
   })
 })
 
