@@ -1,12 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/cron/daily",
-      "schedule": "0 11 * * *"
-    },
-    {
-      "path": "/api/cron/weekly",
-      "schedule": "0 12 * * 0"
+      "path": "/api/feeds/ingest",
+      "schedule": "0 */6 * * *"
     }
   ]
 }

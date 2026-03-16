@@ -1,12 +1,9 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter } from 'next/font/google'
 import './globals.css'
 
-const inter = Inter({ subsets: ['latin'] })
-
 export const metadata: Metadata = {
-  title: 'Face Cards - DoD Leadership Flashcards',
-  description: 'Learn the faces and names of Department of Defense senior leadership with interactive flashcards.',
+  title: 'EnderAI — Global Battle Simulation Platform',
+  description: 'AI-powered operational warning and battle simulation platform using MiroFish swarm intelligence for full-scale military campaign modeling.',
 }
 
 export const viewport: Viewport = {
@@ -21,8 +18,10 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
-      <body className={inter.className}>{children}</body>
+    <html lang="en" className="dark">
+      <body className="font-sans bg-gray-950 text-gray-100 antialiased">
+        {children}
+      </body>
     </html>
   )
 }

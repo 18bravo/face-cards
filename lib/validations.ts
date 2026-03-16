@@ -1,85 +1,42 @@
 import { z } from 'zod'
 
-// Auth validation
 export const loginSchema = z.object({
-  username: z.string().min(1).max(100),
-  password: z.string().min(1).max(200),
+  username: z.string().min(1),
+  password: z.string().min(1),
 })
 
-// Leader validation - must match Prisma enums
-const categoryEnum = z.enum([
-  'MILITARY_4STAR',
-  'MILITARY_3STAR',
-  'MAJOR_COMMAND',
-  'SERVICE_SECRETARY',
-  'CIVILIAN_SES',
-  'APPOINTEE',
-  'SECRETARIAT',
-])
-const branchEnum = z.enum([
-  'ARMY',
-  'NAVY',
-  'AIR_FORCE',
-  'MARINE_CORPS',
-  'SPACE_FORCE',
-  'COAST_GUARD',
-]).nullable()
-
-export const createLeaderSchema = z.object({
+export const createScenarioSchema = z.object({
   name: z.string().min(1).max(200),
-  title: z.string().min(1).max(500),
-  photoUrl: z.string().url().max(2000),
-  category: categoryEnum,
-  branch: branchEnum.optional(),
-  organization: z.string().min(1).max(500),
-  isActive: z.boolean().optional().default(true),
+  description: z.string().min(1).max(5000),
+  theater: z.enum(['INDOPACOM', 'EUCOM', 'CENTCOM', 'AFRICOM', 'SOUTHCOM', 'NORTHCOM', 'GLOBAL']),
 })
 
-export const updateLeaderSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  title: z.string().min(1).max(500).optional(),
-  photoUrl: z.string().url().max(2000).optional(),
-  category: categoryEnum.optional(),
-  branch: branchEnum.optional(),
-  organization: z.string().min(1).max(500).optional(),
-  isActive: z.boolean().optional(),
+export const createUnitSchema = z.object({
+  name: z.string().min(1).max(200),
+  designation: z.string().min(1).max(200),
+  unitType: z.string(),
+  branch: z.string(),
+  echelon: z.string(),
+  strength: z.number().int().positive(),
+  readiness: z.number().min(0).max(1).default(1.0),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  altitude: z.number().default(0),
+  heading: z.number().min(0).max(360).default(0),
+  speed: z.number().min(0).default(0),
+  faction: z.enum(['BLUE', 'RED', 'GREEN', 'NEUTRAL']),
+  scenarioId: z.string(),
 })
 
-// Whitelist of allowed fields for leader updates (used in apply-refresh)
-export const ALLOWED_LEADER_FIELDS = ['name', 'title', 'photoUrl', 'category', 'branch', 'organization', 'isActive'] as const
-
-// Apply refresh token validation
-export const applyRefreshSchema = z.object({
-  previewToken: z.string().min(1),
+export const moveUnitSchema = z.object({
+  unitId: z.string(),
+  destLat: z.number().min(-90).max(90),
+  destLon: z.number().min(-180).max(180),
+  orderType: z.enum(['MOVE', 'ATTACK', 'DEFEND', 'PATROL', 'WITHDRAW', 'SUPPORT', 'RESUPPLY', 'RECON']),
 })
 
-// Preview data validation schema (for data stored in database)
-export const previewDataSchema = z.object({
-  additions: z.array(z.object({
-    name: z.string(),
-    title: z.string(),
-    photoUrl: z.string(),
-    category: categoryEnum,
-    branch: branchEnum,
-    organization: z.string(),
-  })),
-  updates: z.array(z.object({
-    id: z.string(),
-    name: z.string(),
-    changes: z.array(z.object({
-      field: z.string(),
-      current: z.string(),
-      proposed: z.string(),
-    })),
-  })),
-  removals: z.array(z.object({
-    id: z.string(),
-    name: z.string(),
-    title: z.string(),
-  })),
+export const addFeedSchema = z.object({
+  name: z.string().min(1).max(200),
+  url: z.string().url(),
+  category: z.enum(['DEFENSE', 'GEOPOLITICS', 'INTELLIGENCE', 'TECHNOLOGY', 'CONFLICT', 'DIPLOMACY', 'ECONOMICS', 'CYBER']),
 })
-
-export type LoginInput = z.infer<typeof loginSchema>
-export type CreateLeaderInput = z.infer<typeof createLeaderSchema>
-export type UpdateLeaderInput = z.infer<typeof updateLeaderSchema>
-export type PreviewDataInput = z.infer<typeof previewDataSchema>

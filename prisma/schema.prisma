@@ -6,32 +6,59 @@ datasource db {
   provider = "postgresql"
 }
 
-model Leader {
-  id           String    @id @default(cuid())
-  name         String
-  title        String
-  photoUrl     String
-  category     Category
-  branch       Branch?
-  organization String
-  isActive     Boolean   @default(true)
-  lastVerified DateTime  @default(now())
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+// ── Military Units ──────────────────────────────────────────
 
-  @@index([category])
-  @@index([branch])
-  @@index([isActive])
+model MilitaryUnit {
+  id            String      @id @default(cuid())
+  name          String
+  designation   String
+  unitType      UnitType
+  branch        Branch
+  echelon       Echelon
+  strength      Int
+  readiness     Float       @default(1.0)
+  latitude      Float
+  longitude     Float
+  altitude      Float       @default(0)
+  heading       Float       @default(0)
+  speed         Float       @default(0)
+  faction       String      @default("BLUE")
+  status        UnitStatus  @default(READY)
+  parentId      String?
+  parent        MilitaryUnit?  @relation("UnitHierarchy", fields: [parentId], references: [id])
+  subordinates  MilitaryUnit[] @relation("UnitHierarchy")
+  scenarioId    String?
+  scenario      Scenario?   @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  movements     Movement[]
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([scenarioId])
+  @@index([faction])
+  @@index([unitType])
 }
 
-enum Category {
-  MILITARY_4STAR
-  MILITARY_3STAR
-  MAJOR_COMMAND
-  SERVICE_SECRETARY
-  CIVILIAN_SES
-  APPOINTEE
-  SECRETARIAT
+enum UnitType {
+  INFANTRY
+  ARMOR
+  ARTILLERY
+  AIR_DEFENSE
+  AVIATION
+  NAVAL_SURFACE
+  NAVAL_SUBSURFACE
+  CARRIER_GROUP
+  AMPHIBIOUS
+  SPECIAL_OPERATIONS
+  CYBER
+  SPACE
+  LOGISTICS
+  COMMAND
+  MISSILE
+  AIR_FIGHTER
+  AIR_BOMBER
+  AIR_TRANSPORT
+  AIR_ISR
+  UAV
 }
 
 enum Branch {
@@ -43,17 +70,263 @@ enum Branch {
   COAST_GUARD
 }
 
-model RevokedToken {
-  jti       String   @id
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  @@index([expiresAt])
+enum Echelon {
+  FIRE_TEAM
+  SQUAD
+  PLATOON
+  COMPANY
+  BATTALION
+  REGIMENT
+  BRIGADE
+  DIVISION
+  CORPS
+  ARMY_LEVEL
+  THEATER
+  FLEET
+  SQUADRON
+  WING
+  AIR_FORCE_LEVEL
 }
 
-model PreviewData {
-  id        String   @id @default(cuid())
-  data      Json
+enum UnitStatus {
+  READY
+  MOVING
+  ENGAGED
+  DEFENDING
+  RETREATING
+  DESTROYED
+  RESUPPLYING
+  STANDBY
+}
+
+// ── Scenarios ───────────────────────────────────────────────
+
+model Scenario {
+  id            String          @id @default(cuid())
+  name          String
+  description   String
+  theater       Theater
+  status        ScenarioStatus  @default(DRAFT)
+  startDate     DateTime        @default(now())
+  currentTick   Int             @default(0)
+  tickIntervalMs Int            @default(1000)
+  units         MilitaryUnit[]
+  movements     Movement[]
+  simulations   Simulation[]
+  events        ScenarioEvent[]
+  auditLogs     AuditLog[]
+  sourceArticles ScenarioFeedArticle[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([status])
+  @@index([theater])
+}
+
+enum Theater {
+  INDOPACOM
+  EUCOM
+  CENTCOM
+  AFRICOM
+  SOUTHCOM
+  NORTHCOM
+  GLOBAL
+}
+
+enum ScenarioStatus {
+  DRAFT
+  READY
+  RUNNING
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+// ── Unit Movements / Orders ─────────────────────────────────
+
+model Movement {
+  id          String       @id @default(cuid())
+  unitId      String
+  unit        MilitaryUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  scenarioId  String
+  scenario    Scenario     @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  orderType   OrderType
+  destLat     Float
+  destLon     Float
+  tick        Int
+  completedAt DateTime?
+  createdAt   DateTime     @default(now())
+
+  @@index([unitId])
+  @@index([scenarioId])
+}
+
+enum OrderType {
+  MOVE
+  ATTACK
+  DEFEND
+  PATROL
+  WITHDRAW
+  SUPPORT
+  RESUPPLY
+  RECON
+}
+
+// ── Scenario Events ─────────────────────────────────────────
+
+model ScenarioEvent {
+  id          String        @id @default(cuid())
+  scenarioId  String
+  scenario    Scenario      @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  tick        Int
+  eventType   EventType
+  title       String
+  description String
+  latitude    Float?
+  longitude   Float?
+  severity    Severity      @default(INFO)
+  data        Json?
+  createdAt   DateTime      @default(now())
+
+  @@index([scenarioId, tick])
+  @@index([eventType])
+}
+
+enum EventType {
+  ENGAGEMENT
+  MOVEMENT
+  DETECTION
+  REINFORCEMENT
+  CASUALTY
+  SUPPLY
+  INTELLIGENCE
+  WEATHER
+  CYBER_ATTACK
+  ESCALATION
+  CEASEFIRE
+  SIMULATION_TICK
+}
+
+enum Severity {
+  INFO
+  WARNING
+  CRITICAL
+  FLASH
+}
+
+// ── MiroFish Simulations ────────────────────────────────────
+
+model Simulation {
+  id            String           @id @default(cuid())
+  scenarioId    String
+  scenario      Scenario         @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  agentCount    Int              @default(100)
+  model         String           @default("gpt-4o")
+  status        SimulationStatus @default(PENDING)
+  seedPrompt    String
+  config        Json?
+  resultSummary String?
+  resultData    Json?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime         @default(now())
+
+  @@index([scenarioId])
+  @@index([status])
+}
+
+enum SimulationStatus {
+  PENDING
+  INITIALIZING
+  RUNNING
+  ANALYZING
+  COMPLETED
+  FAILED
+}
+
+// ── RSS Feed Ingestion ──────────────────────────────────────
+
+model RssFeed {
+  id          String        @id @default(cuid())
+  name        String
+  url         String        @unique
+  category    FeedCategory
+  isActive    Boolean       @default(true)
+  lastFetched DateTime?
+  fetchIntervalMin Int      @default(60)
+  articles    FeedArticle[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([isActive])
+  @@index([category])
+}
+
+enum FeedCategory {
+  DEFENSE
+  GEOPOLITICS
+  INTELLIGENCE
+  TECHNOLOGY
+  CONFLICT
+  DIPLOMACY
+  ECONOMICS
+  CYBER
+}
+
+model FeedArticle {
+  id            String    @id @default(cuid())
+  feedId        String
+  feed          RssFeed   @relation(fields: [feedId], references: [id], onDelete: Cascade)
+  title         String
+  url           String    @unique
+  summary       String?
+  content       String?
+  publishedAt   DateTime?
+  author        String?
+  // AI-extracted fields
+  region        String?
+  countries     String[]
+  militaryRelevance Float?  // 0-1 score from AI analysis
+  threatLevel   Severity  @default(INFO)
+  entities      Json?     // extracted entities: leaders, units, weapons, locations
+  scenarios     ScenarioFeedArticle[]
+  createdAt     DateTime  @default(now())
+
+  @@index([feedId])
+  @@index([publishedAt])
+  @@index([militaryRelevance])
+}
+
+model ScenarioFeedArticle {
+  scenarioId String
+  scenario   Scenario    @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  articleId  String
+  article    FeedArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@id([scenarioId, articleId])
+}
+
+// ── Security / Audit (NIST 800-53r5) ────────────────────────
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  action      String
+  resource    String
+  details     Json?
+  ipAddress   String?
+  scenarioId  String?
+  scenario    Scenario? @relation(fields: [scenarioId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([action])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([scenarioId])
+}
+
+model RevokedToken {
+  jti       String   @id
   expiresAt DateTime
   createdAt DateTime @default(now())
 
