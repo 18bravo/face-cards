@@ -10,6 +10,8 @@
     "build": "npm run copy-cesium && prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "copy-cesium": "cp -r node_modules/cesium/Build/Cesium/ public/cesium/ 2>/dev/null || true",
     "postinstall": "npm run copy-cesium"
   },
@@ -34,11 +36,13 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.0.1",
     "dotenv": "^17.2.3",
     "eslint": "^9",
     "eslint-config-next": "16.1.2",
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.0"
   }
 }
