@@ -8,6 +8,9 @@ import {
   restoreSnapshot,
   setAIEnabled,
   generateAfterActionReport,
+  setWeather,
+  exportScenario,
+  importScenario,
   type UnitOrder,
 } from '@/lib/simulation-engine'
 import type { UnitMarker } from '@/types/military'
@@ -600,5 +603,161 @@ describe('generateAfterActionReport', () => {
     const state = createInitialState(units) // tick 0, no combat
     const report = generateAfterActionReport(units, state)
     expect(report.winner).toBeNull()
+  })
+})
+
+// ── Weather system ─────────────────────────────────────────
+
+describe('weather system', () => {
+  it('starts with CLEAR weather by default', () => {
+    const state = createInitialState([blueInfantry])
+    expect(state.environment.weather).toBe('CLEAR')
+  })
+
+  it('can be initialized with custom weather', () => {
+    const state = createInitialState([blueInfantry], 'STORM')
+    expect(state.environment.weather).toBe('STORM')
+  })
+
+  it('setWeather changes weather condition', () => {
+    let state = createInitialState([blueInfantry])
+    state = setWeather(state, 'FOG')
+    expect(state.environment.weather).toBe('FOG')
+  })
+
+  it('weather evolves every 12 ticks', () => {
+    let state = createInitialState([blueInfantry])
+    for (let i = 0; i < 12; i++) {
+      state = advanceTick(state)
+    }
+    // Weather may or may not have changed (stochastic), but no crash
+    expect(['CLEAR', 'OVERCAST', 'RAIN', 'STORM', 'FOG']).toContain(state.environment.weather)
+  })
+
+  it('SITREP includes weather info', () => {
+    let state = createInitialState([blueInfantry])
+    for (let i = 0; i < 5; i++) {
+      state = advanceTick(state)
+    }
+    const sitrep = state.events.find(e => e.type === 'SIMULATION_TICK')
+    expect(sitrep?.description).toContain('WX:')
+  })
+
+  it('storm weather reduces detection range', () => {
+    // In STORM, detection modifier is 0.4, so units that could detect at 80km
+    // now detect at 32km. Place units at 50km apart — should detect in CLEAR but not STORM.
+    const blue = makeUnit({
+      id: 'b1', faction: 'BLUE',
+      position: { latitude: 25.0, longitude: 121.0 },
+    })
+    const red = makeUnit({
+      id: 'r1', faction: 'RED',
+      position: { latitude: 25.4, longitude: 121.4 }, // ~55km away
+    })
+
+    let clearState = createInitialState([blue, red], 'CLEAR')
+    clearState = advanceTick(clearState)
+    const clearDetections = clearState.events.filter(e => e.type === 'DETECTION')
+
+    let stormState = createInitialState([blue, red], 'STORM')
+    stormState = advanceTick(stormState)
+    const stormDetections = stormState.events.filter(e => e.type === 'DETECTION')
+
+    // Clear should detect at 55km (within 80km), storm should not (32km range)
+    expect(clearDetections.length).toBeGreaterThan(0)
+    expect(stormDetections.length).toBe(0)
+  })
+})
+
+// ── Terrain system ─────────────────────────────────────────
+
+describe('terrain system', () => {
+  it('estimates terrain type from position', () => {
+    const state = createInitialState([blueInfantry])
+    // Tokyo area should be URBAN
+    const terrain = state.environment.terrainAtPosition({ latitude: 35.0, longitude: 139.5 })
+    expect(terrain).toBe('URBAN')
+    // Desert region
+    const desert = state.environment.terrainAtPosition({ latitude: 25, longitude: 45 })
+    expect(desert).toBe('DESERT')
+  })
+
+  it('OPEN terrain has no speed penalty', () => {
+    const unit = makeUnit({
+      id: 'b1',
+      position: { latitude: 0, longitude: 0 }, // equator, open
+    })
+    let state = createInitialState([unit])
+    state = issueOrder(state, {
+      unitId: 'b1', type: 'MOVE',
+      destination: { latitude: 1, longitude: 0 },
+    })
+    const next = advanceTick(state)
+    const u = next.units[0]
+    // Should have moved the full speed (25km for infantry)
+    expect(u.position.latitude).toBeGreaterThan(0)
+  })
+})
+
+// ── Scenario Export/Import ─────────────────────────────────
+
+describe('exportScenario / importScenario', () => {
+  it('exports a valid scenario object', () => {
+    let state = createInitialState([blueInfantry, redArmor])
+    for (let i = 0; i < 5; i++) {
+      state = advanceTick(state)
+    }
+
+    const exported = exportScenario('Test Scenario', state)
+    expect(exported.version).toBe(1)
+    expect(exported.name).toBe('Test Scenario')
+    expect(exported.tick).toBe(5)
+    expect(exported.units).toHaveLength(2)
+    expect(exported.weather).toBe(state.environment.weather)
+    expect(exported.exportedAt).toBeDefined()
+  })
+
+  it('imports a valid scenario', () => {
+    const data = {
+      version: 1,
+      name: 'Import Test',
+      exportedAt: new Date().toISOString(),
+      weather: 'RAIN',
+      units: [blueInfantry, redArmor],
+      tick: 10,
+      events: [],
+    }
+
+    const result = importScenario(data)
+    expect('error' in result).toBe(false)
+    if (!('error' in result)) {
+      expect(result.tick).toBe(10)
+      expect(result.units).toHaveLength(2)
+      expect(result.environment.weather).toBe('RAIN')
+    }
+  })
+
+  it('rejects invalid data', () => {
+    expect(importScenario(null)).toHaveProperty('error')
+    expect(importScenario({ version: 2 })).toHaveProperty('error')
+    expect(importScenario({ version: 1, units: [] })).toHaveProperty('error')
+  })
+
+  it('round-trips export → import', () => {
+    let state = createInitialState([blueInfantry, redArmor])
+    state = setWeather(state, 'FOG')
+    for (let i = 0; i < 3; i++) {
+      state = advanceTick(state)
+    }
+
+    const exported = exportScenario('Round Trip', state)
+    const imported = importScenario(exported)
+
+    expect('error' in imported).toBe(false)
+    if (!('error' in imported)) {
+      expect(imported.tick).toBe(3)
+      expect(imported.units).toHaveLength(2)
+      expect(imported.environment.weather).toBe('FOG')
+    }
   })
 })

@@ -7,7 +7,9 @@ import type { UnitMarker, SimulationEvent } from '@/types/military'
 import {
   createInitialState, advanceTick, issueOrder, resetSimulation,
   takeSnapshot, restoreSnapshot, setAIEnabled, generateAfterActionReport,
+  setWeather, exportScenario, importScenario,
   type SimulationState, type UnitOrder, type SimulationSnapshot, type AfterActionReport,
+  type WeatherCondition,
 } from '@/lib/simulation-engine'
 import AfterActionReportModal from '@/components/AfterActionReport'
 import Link from 'next/link'
@@ -172,6 +174,51 @@ export default function GlobePage() {
     setAarReport(generateAfterActionReport(DEMO_UNITS, simState))
   }, [simState])
 
+  const handleWeatherChange = useCallback((weather: WeatherCondition) => {
+    setSimState(prev => setWeather(prev, weather))
+  }, [])
+
+  const handleExportScenario = useCallback(() => {
+    const data = exportScenario('EnderAI Scenario', simState)
+    const json = JSON.stringify(data, null, 2)
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `enderai-scenario-T${simState.tick}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [simState])
+
+  const handleImportScenario = useCallback(() => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.json'
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0]
+      if (!file) return
+      const reader = new FileReader()
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result as string)
+          const result = importScenario(data)
+          if ('error' in result) {
+            alert(`Import failed: ${result.error}`)
+          } else {
+            setSimState(result)
+            setSelectedUnit(null)
+            setOrderMode(null)
+            setSnapshots([])
+          }
+        } catch {
+          alert('Invalid JSON file')
+        }
+      }
+      reader.readAsText(file)
+    }
+    input.click()
+  }, [])
+
   const handleTakeSnapshot = useCallback(() => {
     setSnapshots(prev => [...prev, takeSnapshot(simState)])
   }, [simState])
@@ -296,7 +343,27 @@ export default function GlobePage() {
 
           <div className="h-4 w-px bg-gray-800" />
 
-          {/* Snapshot / Reset / AAR controls */}
+          {/* Weather selector */}
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-mono text-gray-500">WX:</span>
+            {(['CLEAR', 'OVERCAST', 'RAIN', 'STORM', 'FOG'] as WeatherCondition[]).map(w => (
+              <button
+                key={w}
+                onClick={() => handleWeatherChange(w)}
+                className={`px-1 py-0.5 text-[9px] font-mono rounded ${
+                  simState.environment.weather === w
+                    ? w === 'STORM' ? 'bg-red-600/30 text-red-300' : 'bg-cyan-600/30 text-cyan-300'
+                    : 'text-gray-600'
+                }`}
+              >
+                {w === 'CLEAR' ? '☀' : w === 'OVERCAST' ? '☁' : w === 'RAIN' ? '🌧' : w === 'STORM' ? '⚡' : '🌫'}
+              </button>
+            ))}
+          </div>
+
+          <div className="h-4 w-px bg-gray-800" />
+
+          {/* Snapshot / Reset / AAR / Export controls */}
           <button
             onClick={handleTakeSnapshot}
             className="px-2 py-0.5 text-[10px] font-mono text-gray-400 hover:text-cyan-400 bg-gray-800 rounded"
@@ -322,6 +389,20 @@ export default function GlobePage() {
               AAR
             </button>
           )}
+          <button
+            onClick={handleExportScenario}
+            className="px-2 py-0.5 text-[10px] font-mono text-gray-400 hover:text-purple-400 bg-gray-800 rounded"
+            title="Export scenario as JSON"
+          >
+            EXPORT
+          </button>
+          <button
+            onClick={handleImportScenario}
+            className="px-2 py-0.5 text-[10px] font-mono text-gray-400 hover:text-purple-400 bg-gray-800 rounded"
+            title="Import scenario from JSON"
+          >
+            IMPORT
+          </button>
           <button
             onClick={handleReset}
             className="px-2 py-0.5 text-[10px] font-mono text-gray-400 hover:text-red-400 bg-gray-800 rounded"

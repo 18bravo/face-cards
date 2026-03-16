@@ -5,6 +5,7 @@ import type { UnitMarker, SimulationEvent } from '@/types/military'
 import { FACTION_COLORS } from '@/types/military'
 import Timeline from './Timeline'
 import UnitPlacement from './UnitPlacement'
+import UnitHierarchy from './UnitHierarchy'
 
 interface SimulationPanelProps {
   scenarioId?: string
@@ -38,7 +39,7 @@ export default function SimulationPanel({
   onTogglePlacement,
   onSeekTick,
 }: SimulationPanelProps) {
-  const [activeTab, setActiveTab] = useState<'orbat' | 'timeline' | 'deploy' | 'inject' | 'mirofish'>('orbat')
+  const [activeTab, setActiveTab] = useState<'orbat' | 'tree' | 'timeline' | 'deploy' | 'inject' | 'mirofish'>('orbat')
   const [injectType, setInjectType] = useState('event')
   const [injectDesc, setInjectDesc] = useState('')
   const [injectMagnitude, setInjectMagnitude] = useState(0.5)
@@ -60,6 +61,7 @@ export default function SimulationPanel({
 
   const tabs = [
     { id: 'orbat' as const, label: 'ORBAT' },
+    { id: 'tree' as const, label: 'TREE' },
     { id: 'timeline' as const, label: 'TIMELINE' },
     { id: 'deploy' as const, label: 'DEPLOY' },
     { id: 'inject' as const, label: 'INJECT' },
@@ -192,6 +194,11 @@ export default function SimulationPanel({
               ))
             )}
           </>
+        )}
+
+        {/* ── HIERARCHY TREE ──────────────────────────────── */}
+        {activeTab === 'tree' && (
+          <UnitHierarchy units={units} onUnitSelect={(u) => onUnitSelect?.(u)} />
         )}
 
         {/* ── TIMELINE ─────────────────────────────────────── */}

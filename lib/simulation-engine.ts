@@ -100,6 +100,68 @@ export interface SupplyState {
   distanceToSupply: number  // km to nearest friendly LOGISTICS unit
 }
 
+export type WeatherCondition = 'CLEAR' | 'OVERCAST' | 'RAIN' | 'STORM' | 'FOG'
+export type TerrainType = 'OPEN' | 'URBAN' | 'MOUNTAIN' | 'FOREST' | 'COASTAL' | 'OCEAN' | 'DESERT'
+
+export interface EnvironmentState {
+  weather: WeatherCondition
+  terrainAtPosition: (pos: Position) => TerrainType
+}
+
+// Weather effects on combat multipliers
+const WEATHER_MODIFIERS: Record<WeatherCondition, { detection: number; speed: number; airPower: number }> = {
+  CLEAR:    { detection: 1.0,  speed: 1.0,  airPower: 1.0 },
+  OVERCAST: { detection: 0.9,  speed: 1.0,  airPower: 0.9 },
+  RAIN:     { detection: 0.7,  speed: 0.85, airPower: 0.7 },
+  STORM:    { detection: 0.4,  speed: 0.6,  airPower: 0.3 },
+  FOG:      { detection: 0.3,  speed: 0.7,  airPower: 0.5 },
+}
+
+// Terrain effects: defense bonus and speed modifier
+const TERRAIN_MODIFIERS: Record<TerrainType, { defenseBonus: number; speedMod: number; infantryBonus: number }> = {
+  OPEN:     { defenseBonus: 1.0, speedMod: 1.0,  infantryBonus: 1.0 },
+  URBAN:    { defenseBonus: 1.5, speedMod: 0.5,  infantryBonus: 1.4 },
+  MOUNTAIN: { defenseBonus: 1.8, speedMod: 0.3,  infantryBonus: 1.3 },
+  FOREST:   { defenseBonus: 1.4, speedMod: 0.6,  infantryBonus: 1.2 },
+  COASTAL:  { defenseBonus: 1.1, speedMod: 0.9,  infantryBonus: 1.0 },
+  OCEAN:    { defenseBonus: 1.0, speedMod: 1.0,  infantryBonus: 0.2 },
+  DESERT:   { defenseBonus: 0.9, speedMod: 0.8,  infantryBonus: 0.8 },
+}
+
+// Simple terrain estimation from latitude/longitude
+function estimateTerrain(pos: Position): TerrainType {
+  const { latitude, longitude } = pos
+  const absLat = Math.abs(latitude)
+
+  // Ocean: very rough heuristic — known ocean areas
+  // Taiwan Strait, Philippine Sea, Mediterranean, etc.
+  if (absLat < 5 && (longitude > 100 || longitude < -30)) return 'OCEAN'
+  if (latitude > 20 && latitude < 30 && longitude > 120 && longitude < 140) return 'OCEAN'
+  if (latitude > 30 && latitude < 45 && longitude > -10 && longitude < 35) return 'COASTAL'
+
+  // Mountain ranges (rough)
+  if (absLat > 25 && absLat < 40 && longitude > 70 && longitude < 100) return 'MOUNTAIN' // Himalayas
+  if (latitude > 35 && latitude < 50 && longitude > 5 && longitude < 20) return 'MOUNTAIN' // Alps
+
+  // Deserts
+  if (absLat > 15 && absLat < 35 && longitude > 20 && longitude < 60) return 'DESERT' // Sahara/Arabia
+
+  // Forests
+  if (absLat > 50 && longitude > 20 && longitude < 140) return 'FOREST' // Siberian taiga
+
+  // Urban: major population centers (very approximate)
+  if (latitude > 34 && latitude < 36 && longitude > 138 && longitude < 141) return 'URBAN' // Tokyo
+  if (latitude > 39 && latitude < 41 && longitude > 115 && longitude < 118) return 'URBAN' // Beijing
+  if (latitude > 23 && latitude < 26 && longitude > 119 && longitude < 122) return 'URBAN' // Taiwan
+
+  return 'OPEN'
+}
+
+const defaultEnvironment: EnvironmentState = {
+  weather: 'CLEAR',
+  terrainAtPosition: estimateTerrain,
+}
+
 export interface SimulationState {
   tick: number
   units: UnitMarker[]
@@ -108,6 +170,7 @@ export interface SimulationState {
   detections: Map<string, Set<string>> // unitId -> detected enemy unitIds
   engagements: Engagement[]
   supply: Map<string, SupplyState>
+  environment: EnvironmentState
   isRunning: boolean
   aiEnabled: { blue: boolean; red: boolean }
 }
@@ -207,7 +270,7 @@ function isHostile(a: UnitMarker, b: UnitMarker): boolean {
 
 // ── Simulation Engine ───────────────────────────────────────
 
-export function createInitialState(units: UnitMarker[]): SimulationState {
+export function createInitialState(units: UnitMarker[], weather?: WeatherCondition): SimulationState {
   return {
     tick: 0,
     units: units.map(u => ({ ...u })),
@@ -216,8 +279,17 @@ export function createInitialState(units: UnitMarker[]): SimulationState {
     detections: new Map(),
     engagements: [],
     supply: new Map(),
+    environment: { weather: weather ?? 'CLEAR', terrainAtPosition: estimateTerrain },
     isRunning: false,
     aiEnabled: { blue: false, red: true },
+  }
+}
+
+/** Change weather condition mid-simulation */
+export function setWeather(state: SimulationState, weather: WeatherCondition): SimulationState {
+  return {
+    ...state,
+    environment: { ...state.environment, weather },
   }
 }
 
@@ -258,6 +330,7 @@ export function restoreSnapshot(snapshot: SimulationSnapshot): SimulationState {
     detections: new Map(),
     engagements: [],
     supply: new Map(),
+    environment: defaultEnvironment,
     isRunning: false,
     aiEnabled: { blue: false, red: true },
   }
@@ -416,6 +489,57 @@ function updateSupplyLines(
   return newSupply
 }
 
+// ── Scenario Import/Export ─────────────────────────────────
+
+export interface ScenarioExport {
+  version: 1
+  name: string
+  exportedAt: string
+  weather: WeatherCondition
+  units: UnitMarker[]
+  tick: number
+  events: SimulationEvent[]
+}
+
+/** Export current simulation state as a portable JSON object */
+export function exportScenario(name: string, state: SimulationState): ScenarioExport {
+  return {
+    version: 1,
+    name,
+    exportedAt: new Date().toISOString(),
+    weather: state.environment.weather,
+    units: state.units.map(u => ({ ...u })),
+    tick: state.tick,
+    events: state.events.filter(e => e.severity === 'CRITICAL' || e.severity === 'FLASH'),
+  }
+}
+
+/** Import a scenario from JSON, validating structure */
+export function importScenario(data: unknown): SimulationState | { error: string } {
+  if (!data || typeof data !== 'object') return { error: 'Invalid data' }
+  const obj = data as Record<string, unknown>
+
+  if (obj.version !== 1) return { error: 'Unsupported version' }
+  if (!Array.isArray(obj.units) || obj.units.length === 0) return { error: 'No units in scenario' }
+
+  const units = obj.units as UnitMarker[]
+  // Validate each unit has required fields
+  for (const u of units) {
+    if (!u.id || !u.designation || !u.faction || !u.position) {
+      return { error: `Invalid unit: ${u.id ?? 'unknown'}` }
+    }
+  }
+
+  const weather = (typeof obj.weather === 'string' ? obj.weather : 'CLEAR') as WeatherCondition
+  const state = createInitialState(units, weather)
+
+  if (typeof obj.tick === 'number') {
+    return { ...state, tick: obj.tick }
+  }
+
+  return state
+}
+
 /** Toggle faction AI on/off */
 export function setAIEnabled(
   state: SimulationState,
@@ -503,6 +627,16 @@ export function generateAfterActionReport(
   }
 }
 
+/** Check if a unit type is airborne */
+function isAirUnit(unitType: string): boolean {
+  return unitType.startsWith('AIR_') || unitType === 'UAV'
+}
+
+/** Check if a unit type is naval */
+function isNavalUnit(unitType: string): boolean {
+  return unitType.startsWith('NAVAL_') || unitType === 'CARRIER_GROUP' || unitType === 'AMPHIBIOUS'
+}
+
 export function advanceTick(state: SimulationState): SimulationState {
   const tick = state.tick + 1
   const newEvents: SimulationEvent[] = []
@@ -510,6 +644,8 @@ export function advanceTick(state: SimulationState): SimulationState {
   let orders = new Map(state.orders)
   const detections = new Map<string, Set<string>>()
   const engagements = [...state.engagements]
+  const env = state.environment
+  const weatherMod = WEATHER_MODIFIERS[env.weather]
 
   // ── Phase 0: Faction AI ────────────────────────────────
   if (state.aiEnabled.red) {
@@ -544,7 +680,16 @@ export function advanceTick(state: SimulationState): SimulationState {
       }
 
       const dist = haversineDistance(unit.position, dest)
-      const speed = getMaxSpeed(unit.unitType)
+      let speed = getMaxSpeed(unit.unitType)
+
+      // Apply weather speed modifier
+      speed *= weatherMod.speed
+
+      // Apply terrain speed modifier (not for air/naval)
+      if (!isAirUnit(unit.unitType) && !isNavalUnit(unit.unitType)) {
+        const terrain = env.terrainAtPosition(unit.position)
+        speed *= TERRAIN_MODIFIERS[terrain].speedMod
+      }
 
       if (dist <= speed * 0.1) {
         // Arrived
@@ -581,7 +726,9 @@ export function advanceTick(state: SimulationState): SimulationState {
   for (const unit of units) {
     if (unit.status === 'DESTROYED') continue
     const detected = new Set<string>()
-    const range = getDetectionRange(unit.unitType)
+    let range = getDetectionRange(unit.unitType)
+    // Weather degrades detection
+    range *= weatherMod.detection
 
     for (const other of units) {
       if (other.id === unit.id || other.status === 'DESTROYED') continue
@@ -636,13 +783,32 @@ export function advanceTick(state: SimulationState): SimulationState {
         engaged.add(unit.id)
         engaged.add(other.id)
 
-        // Combat resolution
-        const attackerPower = getCombatPower(unit)
-        const defenderPower = getCombatPower(other)
+        // Combat resolution with weather and terrain
+        let attackerPower = getCombatPower(unit)
+        let defenderPower = getCombatPower(other)
+
+        // Weather: reduce air unit combat power in bad weather
+        if (isAirUnit(unit.unitType)) attackerPower *= weatherMod.airPower
+        if (isAirUnit(other.unitType)) defenderPower *= weatherMod.airPower
+
+        // Terrain modifiers for the defender's position
+        const defTerrain = env.terrainAtPosition(other.position)
+        const terrainMod = TERRAIN_MODIFIERS[defTerrain]
+
+        // Infantry bonus in favorable terrain
+        if (other.unitType === 'INFANTRY' || other.unitType === 'SPECIAL_OPERATIONS') {
+          defenderPower *= terrainMod.infantryBonus
+        }
+        if (unit.unitType === 'INFANTRY' || unit.unitType === 'SPECIAL_OPERATIONS') {
+          const atkTerrain = env.terrainAtPosition(unit.position)
+          attackerPower *= TERRAIN_MODIFIERS[atkTerrain].infantryBonus
+        }
+
         const ratio = attackerPower / (attackerPower + defenderPower)
 
-        // Terrain/posture modifier
-        const defenseBonus = other.status === 'DEFENDING' ? 1.3 : 1.0
+        // Posture + terrain defense modifier
+        const postureBonus = other.status === 'DEFENDING' ? 1.3 : 1.0
+        const defenseBonus = postureBonus * terrainMod.defenseBonus
         const adjustedRatio = attackerPower / (attackerPower + defenderPower * defenseBonus)
 
         // Apply casualties (percentage of strength)
@@ -725,7 +891,36 @@ export function advanceTick(state: SimulationState): SimulationState {
   // ── Phase 4.5: Supply line calculation ─────────────────
   const supply = updateSupplyLines(units, state.supply, tick, newEvents)
 
-  // ── Phase 5: Tick event ───────────────────────────────
+  // ── Phase 5: Weather evolution (every 12 ticks / ~12 hours) ─
+  let currentWeather = env.weather
+  if (tick % 12 === 0 && tick > 0) {
+    const weatherOptions: WeatherCondition[] = ['CLEAR', 'OVERCAST', 'RAIN', 'STORM', 'FOG']
+    // Weighted random: favor transitions to adjacent conditions
+    const idx = weatherOptions.indexOf(currentWeather)
+    const weights = weatherOptions.map((_, i) => {
+      const diff = Math.abs(i - idx)
+      return diff === 0 ? 3 : diff === 1 ? 2 : 1
+    })
+    const total = weights.reduce((a, b) => a + b, 0)
+    let r = Math.random() * total
+    let newWeather = currentWeather
+    for (let i = 0; i < weights.length; i++) {
+      r -= weights[i]
+      if (r <= 0) { newWeather = weatherOptions[i]; break }
+    }
+    if (newWeather !== currentWeather) {
+      currentWeather = newWeather
+      newEvents.push({
+        tick,
+        type: 'WEATHER',
+        title: `Weather: ${newWeather}`,
+        description: `Conditions changed to ${newWeather}. Detection: ${(WEATHER_MODIFIERS[newWeather].detection * 100).toFixed(0)}%, Speed: ${(WEATHER_MODIFIERS[newWeather].speed * 100).toFixed(0)}%, Air Power: ${(WEATHER_MODIFIERS[newWeather].airPower * 100).toFixed(0)}%`,
+        severity: newWeather === 'STORM' ? 'WARNING' : 'INFO',
+      })
+    }
+  }
+
+  // ── Phase 6: Tick event ───────────────────────────────
   const aliveBlue = units.filter(u => u.faction === 'BLUE' && u.status !== 'DESTROYED')
   const aliveRed = units.filter(u => u.faction === 'RED' && u.status !== 'DESTROYED')
   const aliveGreen = units.filter(u => u.faction === 'GREEN' && u.status !== 'DESTROYED')
@@ -737,7 +932,8 @@ export function advanceTick(state: SimulationState): SimulationState {
       title: `SITREP T+${tick}h`,
       description: `BLUE: ${aliveBlue.length} units (${aliveBlue.reduce((s, u) => s + u.strength, 0).toLocaleString()} pers) | ` +
         `RED: ${aliveRed.length} units (${aliveRed.reduce((s, u) => s + u.strength, 0).toLocaleString()} pers) | ` +
-        `GREEN: ${aliveGreen.length} units (${aliveGreen.reduce((s, u) => s + u.strength, 0).toLocaleString()} pers)`,
+        `GREEN: ${aliveGreen.length} units (${aliveGreen.reduce((s, u) => s + u.strength, 0).toLocaleString()} pers) | ` +
+        `WX: ${currentWeather}`,
       severity: 'INFO',
     })
   }
@@ -751,6 +947,7 @@ export function advanceTick(state: SimulationState): SimulationState {
     detections,
     engagements,
     supply,
+    environment: { ...env, weather: currentWeather },
     isRunning: state.isRunning,
   }
 }
