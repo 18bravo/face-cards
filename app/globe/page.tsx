@@ -61,6 +61,8 @@ const DEMO_UNITS: UnitMarker[] = [
 type ViewMode = '3d' | '2d'
 type OrderMode = null | 'MOVE' | 'ATTACK' | 'DEFEND' | 'PATROL' | 'WITHDRAW' | 'RECON'
 
+let unitIdCounter = 100
+
 export default function GlobePage() {
   const [simState, setSimState] = useState<SimulationState>(() => createInitialState(DEMO_UNITS))
   const [selectedTheater, setSelectedTheater] = useState('INDOPACOM')
@@ -69,6 +71,8 @@ export default function GlobePage() {
   const [viewMode, setViewMode] = useState<ViewMode>('3d')
   const [orderMode, setOrderMode] = useState<OrderMode>(null)
   const [tickSpeed, setTickSpeed] = useState(1000) // ms per tick
+  const [placementMode, setPlacementMode] = useState(false)
+  const [pendingPlacement, setPendingPlacement] = useState<{ latitude: number; longitude: number } | null>(null)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Simulation tick loop
@@ -103,6 +107,12 @@ export default function GlobePage() {
   }, [])
 
   const handleMapClick = useCallback((lat: number, lon: number) => {
+    // Placement mode: set pending position
+    if (placementMode) {
+      setPendingPlacement({ latitude: lat, longitude: lon })
+      return
+    }
+
     // If we have a selected unit and an order mode, issue the order
     if (selectedUnit && orderMode) {
       const order: UnitOrder = {
@@ -115,7 +125,18 @@ export default function GlobePage() {
       return
     }
     setSelectedUnit(null)
-  }, [selectedUnit, orderMode])
+  }, [selectedUnit, orderMode, placementMode])
+
+  const handlePlaceUnit = useCallback((unit: Omit<UnitMarker, 'id'>) => {
+    const id = `placed-${++unitIdCounter}`
+    const newUnit: UnitMarker = { ...unit, id }
+    setSimState(prev => ({
+      ...prev,
+      units: [...prev.units, newUnit],
+    }))
+    setPendingPlacement(null)
+    setPlacementMode(false)
+  }, [])
 
   const startSimulation = useCallback(() => {
     setSimState(prev => ({ ...prev, isRunning: true }))
@@ -337,6 +358,16 @@ export default function GlobePage() {
               onStartSimulation={startSimulation}
               onPauseSimulation={pauseSimulation}
               onInjectEvent={handleInjectEvent}
+              onPlaceUnit={handlePlaceUnit}
+              onUnitSelect={handleUnitSelect}
+              pendingPlacement={pendingPlacement}
+              placementMode={placementMode}
+              onTogglePlacement={() => {
+                setPlacementMode(!placementMode)
+                setPendingPlacement(null)
+                setOrderMode(null)
+                setSelectedUnit(null)
+              }}
             />
           </div>
         )}

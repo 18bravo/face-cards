@@ -25,6 +25,7 @@ export default function GlobeViewer({
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<InstanceType<typeof import('cesium').Viewer> | null>(null)
   const entitiesRef = useRef<Map<string, unknown>>(new Map())
+  const arcsRef = useRef<Map<string, unknown>>(new Map())
   const [isLoaded, setIsLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -132,8 +133,53 @@ export default function GlobeViewer({
       }
     }
 
+    // Remove old engagement arcs
+    for (const [id, entity] of arcsRef.current) {
+      viewer.entities.remove(entity as import('cesium').Entity)
+    }
+    arcsRef.current.clear()
+
+    // Draw engagement arcs between ENGAGED units of opposing factions
+    const engaged = units.filter(u => u.status === 'ENGAGED')
+    const drawn = new Set<string>()
+    for (const a of engaged) {
+      for (const b of engaged) {
+        if (a.id >= b.id) continue
+        if (a.faction === b.faction) continue
+        const key = `${a.id}-${b.id}`
+        if (drawn.has(key)) continue
+        drawn.add(key)
+
+        const arc = viewer.entities.add({
+          polyline: {
+            positions: Cesium.Cartesian3.fromDegreesArrayHeights([
+              a.position.longitude, a.position.latitude, 5000,
+              b.position.longitude, b.position.latitude, 5000,
+            ]),
+            width: 2,
+            material: new Cesium.PolylineGlowMaterialProperty({
+              glowPower: 0.3,
+              color: Cesium.Color.RED.withAlpha(0.7),
+            }),
+            arcType: Cesium.ArcType.GEODESIC,
+          },
+        })
+        arcsRef.current.set(key, arc)
+      }
+    }
+
     // Add/update units
     for (const unit of units) {
+      if (unit.status === 'DESTROYED') {
+        // Remove destroyed units from globe
+        const existing = entitiesRef.current.get(unit.id)
+        if (existing) {
+          viewer.entities.remove(existing as import('cesium').Entity)
+          entitiesRef.current.delete(unit.id)
+        }
+        continue
+      }
+
       const color = Cesium.Color.fromCssColorString(FACTION_COLORS[unit.faction] || '#ffffff')
       const icon = UNIT_TYPE_ICONS[unit.unitType] || '●'
       const existing = entitiesRef.current.get(unit.id) as import('cesium').Entity | undefined
@@ -143,6 +189,8 @@ export default function GlobeViewer({
         existing.position = new Cesium.ConstantPositionProperty(
           Cesium.Cartesian3.fromDegrees(unit.position.longitude, unit.position.latitude, unit.position.altitude || 0)
         )
+        // Update unit data for click handling
+        ;(existing as unknown as Record<string, unknown>)._unitData = unit
       } else {
         // Create new entity
         const entity = viewer.entities.add({
